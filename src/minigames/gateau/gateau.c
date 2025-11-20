@@ -52,6 +52,11 @@ static Rectangle fridge_rect;       // zone du frigo
 static Rectangle bowl_rect;         // zone du bol (cible)
 static Rectangle score_rect;        // panneau score
 static Font font_default;           // police par défaut (optionnel)
+// Dimensions dynamiques pour mise à l'échelle 1080p
+static int ing_w = 48;              // largeur texture ingrédient (calculée)
+static int ing_h = 48;              // hauteur texture ingrédient (calculée)
+static int decor_w = 36;            // largeur texture décor (calculée)
+static int decor_h = 36;            // hauteur texture décor (calculée)
 
 // fonctions internes
 static void init_textures_and_items(void);
@@ -73,10 +78,24 @@ static void mg_init(void) {
     // s_decor = LoadSound("assets/sfx/decor.wav");
     // Pour l'instant on laisse les Sound vides ; PlaySound fera rien si id invalide.
 
-    // définir rectangles d'interface (positions exprimées pour une fenêtre 800x450)
-    fridge_rect = (Rectangle){ 20, 40, 200, 360 };  // frigo à gauche
-    bowl_rect   = (Rectangle){ 300, 200, 200, 120 }; // bol au centre
-    score_rect  = (Rectangle){ 540, 30, 220, 100 }; // panneau score à droite
+    // définir rectangles d'interface en fonction de la résolution courante
+    int sw = GetScreenWidth();
+    int sh = GetScreenHeight();
+    // Zones principales (adaptées pour 1920x1080 mais proportionnelles)
+    fridge_rect = (Rectangle){ sw * 0.02f, sh * 0.08f, sw * 0.22f, sh * 0.80f };  // frigo à gauche
+    bowl_rect   = (Rectangle){ sw * 0.32f, sh * 0.44f, sw * 0.36f, sh * 0.28f };  // bol au centre
+    score_rect  = (Rectangle){ sw * 0.72f, sh * 0.06f, sw * 0.24f, sh * 0.20f };  // panneau score à droite
+
+    // Calcul des tailles d'icônes d'ingrédients (5 colonnes x 4 lignes)
+    float slot_w = (fridge_rect.width - 20.0f) / 5.0f;
+    float slot_h = (fridge_rect.height - 20.0f - 3.0f * 6.0f) / 4.0f; // 4 lignes, 3 espacements verticaux
+    ing_w = (int)(slot_w - 12.0f);
+    ing_h = (int)(slot_h - 12.0f);
+    if (ing_h > ing_w) ing_h = ing_w; // garder carré si possible
+
+    // Tailles des décors
+    decor_w = (int)(sw * 0.025f);
+    decor_h = decor_w;
 
     // initialiser items (textures de substitution et positions)
     init_textures_and_items();
@@ -159,7 +178,7 @@ static void mg_update(float dt) {
                     int col = i % 5;
                     int row = i / 5;
                     float slot_w = (fridge_rect.width - 20) / 5.0f;
-                    float slot_h = 60;
+                    float slot_h = (fridge_rect.height - 20.0f - 3.0f * 6.0f) / 4.0f;
                     it->rect.x = fridge_rect.x + 10 + col * slot_w;
                     it->rect.y = fridge_rect.y + 10 + row * (slot_h + 6);
                 }
@@ -254,8 +273,8 @@ static void mg_draw(void) {
     // dessiner ingrédients déposés dans le bol (petites pastilles)
     for (int i = 0; i < cake_count; ++i) {
         // positionner en grille dans le bol
-        float cell_w = 36;
-        float cell_h = 36;
+        float cell_w = ing_w * 0.75f;
+        float cell_h = ing_h * 0.75f;
         int cols = (int)(bowl_rect.width / (cell_w + 6));
         int r = i / cols;
         int c = i % cols;
@@ -303,10 +322,10 @@ static void mg_unload(void) {
 
 // crée des textures de substitution (Images colorées) et initialise positions
 static void init_textures_and_items(void) {
-    // générer 20 textures colorées simples pour ingrédients
+    // générer 20 textures colorées simples pour ingrédients (dimensionnées dynamiquement)
     for (int i = 0; i < ING_COUNT; ++i) {
-        int w = 48;
-        int h = 48;
+        int w = ing_w;
+        int h = ing_h;
         // couleur différente selon l'id (simple variation)
         Color c = ColorFromHSV((i * 18) % 360, 0.6f, 0.9f);
         Image img = GenImageColor(w, h, c);        // image unie
@@ -322,7 +341,7 @@ static void init_textures_and_items(void) {
         int col = i % 5;
         int row = i / 5;
         float slot_w = (fridge_rect.width - 20) / 5.0f;
-        float slot_h = 60;
+        float slot_h = (fridge_rect.height - 20.0f - 3.0f * 6.0f) / 4.0f;
         ingredients[i].rect.width = (float)w;
         ingredients[i].rect.height = (float)h;
         ingredients[i].rect.x = fridge_rect.x + 10 + col * slot_w;
@@ -338,15 +357,17 @@ static void init_textures_and_items(void) {
         if (img.data) {
             // Libérer la texture générée pour l'ingrédient 1
             UnloadTexture(ingredients[0].tex);
+            // Redimensionner l'image pour s'adapter à la case du frigo
+            ImageResize(&img, ing_w, ing_h);
             ingredients[0].tex = LoadTextureFromImage(img);
             UnloadImage(img);
         }
     }
 
-    // générer textures pour décors
+    // générer textures pour décors (dimensionnés dynamiquement)
     for (int i = 0; i < DECOR_COUNT; ++i) {
-        int w = 36;
-        int h = 36;
+        int w = decor_w;
+        int h = decor_h;
         Color c = ColorFromHSV((i * 36) % 360, 0.7f, 0.95f);
         Image img = GenImageColor(w, h, c);
         // ajout d'un petit motif
@@ -360,8 +381,8 @@ static void init_textures_and_items(void) {
         // position initiale en haut, organisé en ligne
         decors[i].rect.width = (float)w;
         decors[i].rect.height = (float)h;
-        decors[i].rect.x = 300 + i * (w + 8);
-        decors[i].rect.y = 40;
+        decors[i].rect.x = bowl_rect.x + (i * (w + 12));
+        decors[i].rect.y = bowl_rect.y - (h + 24);
     }
 }
 

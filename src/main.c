@@ -7,6 +7,7 @@
 #include "minigames/pousse_pousse/pousse_pousse.h"
 #include "minigames/traffic/traffic.h"
 #include "minigames/gateau/gateau.h"
+#include "minigames/youre_cooked/youre_cooked.h"
 
 typedef enum {
     STATE_TITLE = 0,
@@ -131,7 +132,7 @@ int main(int argc, char **argv) {
                     if (g.state == STATE_ZONE_JARDIN) g.currentMinigame = GetMinigamePoussePousse();
                     else if (g.state == STATE_ZONE_CHAMBRE) g.currentMinigame = GetMinigameGateau();
                     else if (g.state == STATE_ZONE_GRENIER) g.currentMinigame = GetMinigameTraffic();
-                    else g.currentMinigame = GetMinigamePoussePousse(); // défaut
+                    else g.currentMinigame = GetMinigameYoureCooked(); // cuisine
                     if (g.currentMinigame.init) g.currentMinigame.init();
                     g.state = STATE_MINIJEU;
                 }
