@@ -388,8 +388,6 @@ int main(int argc, char **argv) {
     }
     g.menuBackground = loadTextureIfAvailable("assets/imagefond.png");
     g.hasMenuBackground = g.menuBackground.id != 0;
-    g.menuBear = loadTextureIfAvailable("assets/nounoursmenu.png");
-    g.hasMenuBear = g.menuBear.id != 0;
     loadMenuLayout(&g);
 
     SetTargetFPS(60);
@@ -482,7 +480,6 @@ int main(int argc, char **argv) {
                 break;
             case STATE_HUB: {
                 drawMenuBackground(&g);
-                drawBearCloseup(&g);
                 DrawText("Clique sur une porte | F11: Plein écran | F2: Debug (drag & drop)", 40, 40, 24, WHITE);
                 drawPortalHighlights(&g);
                 drawMinigameStatusTable(&g);
