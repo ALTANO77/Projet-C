@@ -64,12 +64,22 @@ typedef struct {
     Texture2D menuBear;
     bool hasMenuBackground;
     bool hasMenuBear;
+    Texture2D zoneBackgrounds[ZONE_COUNT];
+    bool hasZoneBackground[ZONE_COUNT];
     bool showDebugOverlay;
     int draggingPortal;
     bool draggingBear;
     Vector2 dragOffset;
     RectRatios portalLayouts[ZONE_COUNT];
     BearLayout bearLayout;
+    int hoveredPortal;
+    Music music;
+    bool hasMusic;
+    bool musicMuted;
+    Texture2D soundOnIcon;
+    Texture2D soundOffIcon;
+    bool hasSoundOnIcon;
+    bool hasSoundOffIcon;
 } Game;
 
 typedef struct {
@@ -94,6 +104,12 @@ static const RectRatios DEFAULT_PORTAL_LAYOUTS[ZONE_COUNT] = {
 static const BearLayout DEFAULT_BEAR_LAYOUT = { 0.021f, 0.113f, 0.85f };
 static const char *PORTAL_KEYS[ZONE_COUNT] = { "jardin", "chambre", "grenier", "cuisine" };
 static const char *LAYOUT_FILE = "config/menu_layout.ini";
+static const char *ZONE_BG_FILES[ZONE_COUNT] = {
+    "assets/bg_jardin.png",
+    "assets/bg_puzzle.png",
+    "assets/bg_bibliotheque.png",
+    "assets/bg_cuisine.png"
+};
 
 static float clampf(float v, float lo, float hi) {
     return v < lo ? lo : (v > hi ? hi : v);
@@ -190,10 +206,15 @@ static void saveMenuLayout(const Game *g) {
 }
 
 static void drawMenuBackground(const Game *g) {
-    if (g->hasMenuBackground) {
-        Rectangle src = { 0, 0, (float)g->menuBackground.width, (float)g->menuBackground.height };
+    const Texture2D *tex = &g->menuBackground;
+    if (g->hoveredPortal >= 0 && g->hoveredPortal < ZONE_COUNT && g->hasZoneBackground[g->hoveredPortal]) {
+        tex = &g->zoneBackgrounds[g->hoveredPortal];
+    }
+
+    if (tex->id != 0) {
+        Rectangle src = { 0, 0, (float)tex->width, (float)tex->height };
         Rectangle dst = { 0, 0, (float)GetScreenWidth(), (float)GetScreenHeight() };
-        DrawTexturePro(g->menuBackground, src, dst, (Vector2){ 0, 0 }, 0.0f, WHITE);
+        DrawTexturePro(*tex, src, dst, (Vector2){ 0, 0 }, 0.0f, WHITE);
     } else {
         drawGround();
     }
@@ -243,6 +264,92 @@ static void drawCoinCounter(const Game *g) {
     };
     DrawRectangleRounded(box, 0.12f, 6, (Color){ 0, 0, 0, 160 });
     DrawText(label, (int)(box.x + padding), (int)(box.y + 12), fontSize, GOLD);
+}
+
+static Rectangle getMusicButtonRect(void) {
+    float sw = (float)GetScreenWidth();
+    float sh = (float)GetScreenHeight();
+
+    // Taille et marge proportionnelles à la taille de la fenêtre
+    float base = fminf(sw, sh);
+    float size = base * 0.05f;      // ~5% du plus petit côté
+    if (size < 32.0f) size = 32.0f; // limite minimale
+    if (size > 96.0f) size = 96.0f; // limite maximale
+    float margin = size * 0.5f;
+
+    return (Rectangle){
+        sw - size - margin,
+        sh - size - margin,
+        size,
+        size
+    };
+}
+
+static void drawMusicButton(const Game *g) {
+    if (!g->hasMusic) return;
+    Rectangle r = getMusicButtonRect();
+    Vector2 mouse = GetMousePosition();
+    bool hover = CheckCollisionPointRec(mouse, r);
+
+    // Fond clair plutôt que noir
+    Color bg = (Color){ 245, 245, 245, hover ? 255 : 230 };
+    Color border = (Color){ 60, 60, 60, 220 };
+
+    DrawRectangleRounded(r, 0.4f, 6, bg);
+    DrawRectangleRoundedLines(r, 0.4f, 6, border);
+
+    // Si des icônes personnalisées sont présentes, on les utilise
+    const Texture2D *iconTex = NULL;
+    if (!g->musicMuted && g->hasSoundOnIcon) iconTex = &g->soundOnIcon;
+    if (g->musicMuted && g->hasSoundOffIcon) iconTex = &g->soundOffIcon;
+
+    if (iconTex && iconTex->id != 0) {
+        Rectangle src = { 0, 0, (float)iconTex->width, (float)iconTex->height };
+        // On laisse une petite marge à l’intérieur du bouton
+        float pad = r.width * 0.15f;
+        Rectangle dst = {
+            r.x + pad,
+            r.y + pad,
+            r.width - 2.0f * pad,
+            r.height - 2.0f * pad
+        };
+        DrawTexturePro(*iconTex, src, dst, (Vector2){ 0, 0 }, 0.0f, WHITE);
+    } else {
+        // Fallback : petit pictogramme simple si pas d’icône personnalisée
+        Color iconColor = g->musicMuted ? (Color){ 220, 80, 80, 255 } : (Color){ 120, 220, 140, 255 };
+        float cx = r.x + r.width * 0.5f;
+        float cy = r.y + r.height * 0.5f;
+        float w = r.width * 0.35f;
+        float h = r.height * 0.30f;
+
+        DrawTriangle(
+            (Vector2){ cx - w * 0.6f, cy - h * 0.6f },
+            (Vector2){ cx - w * 0.6f, cy + h * 0.6f },
+            (Vector2){ cx,            cy          },
+            iconColor
+        );
+        DrawRectangleV(
+            (Vector2){ cx - w, cy - h * 0.4f },
+            (Vector2){ w * 0.4f, h * 0.8f },
+            iconColor
+        );
+        if (g->musicMuted) {
+            DrawLineEx(
+                (Vector2){ cx + w * 0.2f, cy - h * 0.7f },
+                (Vector2){ cx + w * 0.8f, cy + h * 0.7f },
+                3.0f,
+                iconColor
+            );
+            DrawLineEx(
+                (Vector2){ cx + w * 0.8f, cy - h * 0.7f },
+                (Vector2){ cx + w * 0.2f, cy + h * 0.7f },
+                3.0f,
+                iconColor
+            );
+        } else {
+            DrawCircleLines((int)(cx + w * 0.6f), (int)cy, (int)(h * 0.9f), iconColor);
+        }
+    }
 }
 
 static Rectangle computePortalRect(const Game *g, int idx) {
@@ -381,6 +488,7 @@ int main(int argc, char **argv) {
 
     SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI | FLAG_WINDOW_RESIZABLE);
     InitWindow(1920, 1080, "Gros Nounours 2D");
+    InitAudioDevice();
     // Icône de fenêtre (placer votre image sous assets/icon.png)
     {
         Image icon = LoadImage("assets/icon.png");
@@ -388,6 +496,10 @@ int main(int argc, char **argv) {
     }
     g.menuBackground = loadTextureIfAvailable("assets/imagefond.png");
     g.hasMenuBackground = g.menuBackground.id != 0;
+    for (int i = 0; i < ZONE_COUNT; ++i) {
+        g.zoneBackgrounds[i] = loadTextureIfAvailable(ZONE_BG_FILES[i]);
+        g.hasZoneBackground[i] = g.zoneBackgrounds[i].id != 0;
+    }
     loadMenuLayout(&g);
 
     SetTargetFPS(60);
@@ -396,11 +508,27 @@ int main(int argc, char **argv) {
     g.showDebugOverlay = false;
     g.draggingPortal = -1;
     g.draggingBear = false;
+    g.hoveredPortal = -1;
+    g.music = LoadMusicStream("assets/music.ogg");
+    g.hasMusic = g.music.frameCount > 0;
+    g.musicMuted = false;
+    if (g.hasMusic) {
+        SetMusicVolume(g.music, 0.6f);
+        PlayMusicStream(g.music);
+    }
+    g.soundOnIcon = loadTextureIfAvailable("assets/sound_on.png");
+    g.soundOffIcon = loadTextureIfAvailable("assets/sound_off.png");
+    g.hasSoundOnIcon = g.soundOnIcon.id != 0;
+    g.hasSoundOffIcon = g.soundOffIcon.id != 0;
     resetPlayer(&g.player);
 
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
         clampBearToScreen(&g);
+        g.hoveredPortal = -1;
+        if (g.hasMusic && !g.musicMuted) {
+            UpdateMusicStream(g.music);
+        }
 
         if (IsKeyPressed(KEY_F11)) ToggleFullscreen();
         if (IsKeyPressed(KEY_F2)) g.showDebugOverlay = !g.showDebugOverlay;
@@ -421,6 +549,7 @@ int main(int argc, char **argv) {
                     for (int i = 0; i < ZONE_COUNT; ++i) {
                         Rectangle rect = computePortalRect(&g, i);
                         if (CheckCollisionPointRec(mouse, rect)) {
+                            g.hoveredPortal = i;
                             if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
                                 g.state = zoneToState(HUB_PORTALS[i].zone);
                                 g.activeZone = HUB_PORTALS[i].zone;
@@ -504,11 +633,31 @@ int main(int argc, char **argv) {
                 break;
             default: break;
         }
+
+        // Bouton musique (mute/unmute) toujours visible
+        drawMusicButton(&g);
+        if (g.hasMusic) {
+            Rectangle musicBtn = getMusicButtonRect();
+            if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && CheckCollisionPointRec(GetMousePosition(), musicBtn)) {
+                g.musicMuted = !g.musicMuted;
+                if (g.musicMuted) PauseMusicStream(g.music);
+                else ResumeMusicStream(g.music);
+            }
+        }
         EndDrawing();
     }
     saveMenuLayout(&g);
     if (g.hasMenuBackground) UnloadTexture(g.menuBackground);
-    if (g.hasMenuBear) UnloadTexture(g.menuBear);
+    for (int i = 0; i < ZONE_COUNT; ++i) {
+        if (g.hasZoneBackground[i]) UnloadTexture(g.zoneBackgrounds[i]);
+    }
+    if (g.hasMusic) {
+        StopMusicStream(g.music);
+        UnloadMusicStream(g.music);
+    }
+    if (g.hasSoundOnIcon) UnloadTexture(g.soundOnIcon);
+    if (g.hasSoundOffIcon) UnloadTexture(g.soundOffIcon);
+    CloseAudioDevice();
     CloseWindow();
     return 0;
 }
