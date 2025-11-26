@@ -79,8 +79,8 @@ typedef struct {
 
 static const HubPortalInfo HUB_PORTALS[ZONE_COUNT] = {
     { ZONE_JARDIN,  "Jardin" },
-    { ZONE_CHAMBRE, "Chambre" },
-    { ZONE_GRENIER, "Grenier" },
+    { ZONE_CHAMBRE, "Puzzle" },
+    { ZONE_GRENIER, "Bibliothèque" },
     { ZONE_CUISINE, "Cuisine" }
 };
 
@@ -208,7 +208,7 @@ static void drawBearCloseup(const Game *g) {
 }
 
 static void drawMinigameStatusTable(const Game *g) {
-    static const char *zoneLabels[ZONE_COUNT] = { "Jardin", "Chambre", "Grenier", "Cuisine" };
+    static const char *zoneLabels[ZONE_COUNT] = { "Jardin", "Puzzle", "Bibliothèque", "Cuisine" };
     const float tableX = 60.0f;
     const float tableY = 620.0f;
     const float rowHeight = 42.0f;
@@ -436,9 +436,10 @@ int main(int argc, char **argv) {
                 if (IsKeyPressed(KEY_BACKSPACE)) { g.state = STATE_HUB; g.activeZone = ZONE_NONE; }
                 if (IsKeyPressed(KEY_ENTER)) {
                     // Choix mini‑jeu par zone
-                    if (g.state == STATE_ZONE_JARDIN) g.currentMinigame = GetMinigamePoussePousse();
-                    else if (g.state == STATE_ZONE_CHAMBRE) g.currentMinigame = GetMinigameGateau();
-                    else if (g.state == STATE_ZONE_GRENIER) g.currentMinigame = GetMinigameTraffic();
+                    // Jardin -> Traffic, Puzzle -> PoussePousse, Bibliothèque -> Gateau, Cuisine -> YoureCooked
+                    if (g.state == STATE_ZONE_JARDIN) g.currentMinigame = GetMinigameTraffic();
+                    else if (g.state == STATE_ZONE_CHAMBRE) g.currentMinigame = GetMinigamePoussePousse();
+                    else if (g.state == STATE_ZONE_GRENIER) g.currentMinigame = GetMinigameGateau();
                     else g.currentMinigame = GetMinigameYoureCooked(); // cuisine
                     if (g.currentMinigame.init) g.currentMinigame.init();
                     g.state = STATE_MINIJEU;
@@ -490,10 +491,10 @@ int main(int argc, char **argv) {
                 drawCentered("Jardin — Entrée: Mini‑jeu | Retour: Backspace", 160, 26, RAYWHITE);
                 break;
             case STATE_ZONE_CHAMBRE:
-                drawCentered("Chambre — Entrée: Mini‑jeu | Retour: Backspace", 160, 26, RAYWHITE);
+                drawCentered("Puzzle — Entrée: Mini‑jeu | Retour: Backspace", 160, 26, RAYWHITE);
                 break;
             case STATE_ZONE_GRENIER:
-                drawCentered("Grenier — Entrée: Mini‑jeu | Retour: Backspace", 160, 26, RAYWHITE);
+                drawCentered("Bibliothèque — Entrée: Mini‑jeu | Retour: Backspace", 160, 26, RAYWHITE);
                 break;
             case STATE_ZONE_CUISINE:
                 drawCentered("Cuisine — Entrée: Mini‑jeu | Retour: Backspace", 160, 26, RAYWHITE);
