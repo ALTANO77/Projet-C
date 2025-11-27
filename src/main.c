@@ -16,6 +16,7 @@ typedef enum {
     STATE_ZONE_CHAMBRE,
     STATE_ZONE_GRENIER,
     STATE_ZONE_CUISINE,
+    STATE_SHOP,
     STATE_MINIJEU,
     STATE_PAUSE
 } GameState;
@@ -548,6 +549,13 @@ int main(int argc, char **argv) {
                 handleDebugDragging(&g);
                 if (!g.showDebugOverlay) {
                     Vector2 mouse = GetMousePosition();
+                    Rectangle bearRect = computeBearRect(&g);
+                    bool bearHovered = g.hasMenuBear && bearRect.width > 0 && CheckCollisionPointRec(mouse, bearRect);
+                    if (bearHovered && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+                        g.state = STATE_SHOP;
+                        g.activeZone = ZONE_NONE;
+                        break;
+                    }
                     for (int i = 0; i < ZONE_COUNT; ++i) {
                         Rectangle rect = computePortalRect(&g, i);
                         if (CheckCollisionPointRec(mouse, rect)) {
@@ -575,6 +583,9 @@ int main(int argc, char **argv) {
                     if (g.currentMinigame.init) g.currentMinigame.init();
                     g.state = STATE_MINIJEU;
                 }
+                break;
+            case STATE_SHOP:
+                if (IsKeyPressed(KEY_BACKSPACE)) { g.state = STATE_HUB; g.activeZone = ZONE_NONE; }
                 break;
             case STATE_MINIJEU:
                 if (IsKeyPressed(KEY_BACKSPACE)) {
@@ -630,6 +641,12 @@ int main(int argc, char **argv) {
                 break;
             case STATE_ZONE_CUISINE:
                 drawCentered("Cuisine — Entrée: Mini‑jeu | Retour: Backspace", 160, 26, RAYWHITE);
+                break;
+            case STATE_SHOP:
+                DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), RAYWHITE);
+                drawCentered("Boutique d'habits", 140, 56, (Color){ 50, 50, 80, 255 });
+                drawCentered("Clique sur un habit (WIP) | Backspace pour revenir", 220, 26, GRAY);
+                drawCentered("Prévoit d'afficher ici les tenues disponibles.", 320, 22, DARKGRAY);
                 break;
             case STATE_MINIJEU:
                 if (g.currentMinigame.draw) g.currentMinigame.draw();
