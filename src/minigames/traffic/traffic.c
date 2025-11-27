@@ -27,6 +27,8 @@ static float playerFrameTimer; // accumulates time for frame switching
 static float playerFrameDuration = 0.12f; // ~8 FPS
 static Texture2D texObstacle;
 static Texture2D texRoad;
+static Texture2D texBorderLeft;
+static Texture2D texBorderRight;
 static Texture2D texCoin;
 static bool texturesReady;
 static float roadScroll;
@@ -41,6 +43,49 @@ static RectF coins[MAX_COINS];
 static int coinCount;
 static float coinSpawnTimer;
 static int collectedCoins;
+
+static Texture2D loadTextureIfExists(const char *path) {
+    Image img = LoadImage(path);
+    if (!img.data) return (Texture2D){0};
+    Texture2D tex = LoadTextureFromImage(img);
+    UnloadImage(img);
+    return tex;
+}
+
+static bool consumeTimer(float *timer, float dt, float interval) {
+    *timer -= dt;
+    if (*timer > 0.0f) return false;
+    *timer = interval;
+    return true;
+}
+
+static void scrollRects(RectF *items, int count, float offsetY) {
+    for (int i = 0; i < count; i++) items[i].y += offsetY;
+}
+
+static int compactVisible(RectF *items, int count, float limitY) {
+    int write = 0;
+    for (int i = 0; i < count; i++) {
+        if (items[i].y < limitY) items[write++] = items[i];
+    }
+    return write;
+}
+
+static bool drawBorderTexture(Texture2D tex, float x, float width) {
+    if (!tex.id || width <= 1.0f) return false;
+    const float srcW = (float)tex.width;
+    const float srcH = (float)tex.height;
+    const float scale = width / srcW;
+    const float tileH = srcH * scale;
+    float startY = fmodf(-roadScroll, tileH);
+    if (startY > 0) startY -= tileH;
+    for (float y = startY; y < GetScreenHeight(); y += tileH) {
+        Rectangle src = { 0, 0, srcW, srcH };
+        Rectangle dst = { x, y, width, tileH };
+        DrawTexturePro(tex, src, dst, (Vector2){0,0}, 0.0f, WHITE);
+    }
+    return true;
+}
 
 static void resetTraffic(void) {
     roadW = GetScreenWidth() * 0.45f;
@@ -104,6 +149,8 @@ static void mg_init(void) {
     texObstacle = (Texture2D){0};
     texRoad = (Texture2D){0};
     texCoin = (Texture2D){0};
+    texBorderLeft = (Texture2D){0};
+    texBorderRight = (Texture2D){0};
     for (int i=0;i<4;i++) texPlayerFrames[i] = (Texture2D){0};
     playerFrameCount = 0;
     playerFrameIndex = 0;
@@ -120,14 +167,11 @@ static void mg_init(void) {
         if (img.data) { texPlayer = LoadTextureFromImage(img); UnloadImage(img); }
     }
 
-    img = LoadImage("assets/traffic/obstacle1.png");
-    if (img.data) { texObstacle = LoadTextureFromImage(img); UnloadImage(img); }
-
-    img = LoadImage("assets/traffic/road.png");
-    if (img.data) { texRoad = LoadTextureFromImage(img); UnloadImage(img); }
-
-    img = LoadImage("assets/traffic/coin.png");
-    if (img.data) { texCoin = LoadTextureFromImage(img); UnloadImage(img); }
+    texObstacle = loadTextureIfExists("assets/traffic/obstacle1.png");
+    texRoad = loadTextureIfExists("assets/traffic/road.png");
+    texBorderLeft = loadTextureIfExists("assets/traffic/borduregauche.png");
+    texBorderRight = loadTextureIfExists("assets/traffic/borduredroite.png");
+    texCoin = loadTextureIfExists("assets/traffic/coin.png");
 
     texturesReady = ((playerFrameCount > 0) || (texPlayer.id != 0)) && (texObstacle.id != 0);
 }
@@ -156,25 +200,12 @@ static void mg_update(float dt) {
     }
 
     // Spawns
-    spawnTimer -= dt;
-    if (spawnTimer <= 0.0f) {
-        spawnObstacle();
-        spawnTimer = 0.8f; // cadence
-    }
-    coinSpawnTimer -= dt;
-    if (coinSpawnTimer <= 0.0f) {
-        spawnCoin();
-        coinSpawnTimer = 1.2f; // coins slightly less frequent
-    }
+    if (consumeTimer(&spawnTimer, dt, 0.8f)) spawnObstacle();
+    if (consumeTimer(&coinSpawnTimer, dt, 1.2f)) spawnCoin(); // coins slightly less frequent
 
     // Update obstacles
-    for (int i=0;i<obsCount;i++) {
-        obs[i].y += speedScroll * dt;
-    }
-    // Update coins
-    for (int i=0;i<coinCount;i++) {
-        coins[i].y += speedScroll * dt;
-    }
+    scrollRects(obs, obsCount, speedScroll * dt);
+    scrollRects(coins, coinCount, speedScroll * dt);
     // Player animation (loops while running)
     if (playerFrameCount > 1) {
         playerFrameTimer += dt;
@@ -190,16 +221,12 @@ static void mg_update(float dt) {
     speedScroll += speedAccelPx * dt;
     if (speedScroll > maxSpeedPx) speedScroll = maxSpeedPx;
     // Remove off-screen
-    int w = 0;
-    for (int i=0;i<obsCount;i++) if (obs[i].y < GetScreenHeight()+20) obs[w++] = obs[i];
-    obsCount = w;
-    w = 0;
-    for (int i=0;i<coinCount;i++) if (coins[i].y < GetScreenHeight()+20) coins[w++] = coins[i];
-    coinCount = w;
+    obsCount = compactVisible(obs, obsCount, GetScreenHeight()+20);
+    coinCount = compactVisible(coins, coinCount, GetScreenHeight()+20);
 
     // Collisions
+    RectF pbox = shrinkRect(player, 8, 8);
     for (int i=0;i<obsCount;i++) {
-        RectF pbox = shrinkRect(player, 8, 8);
         RectF obox = shrinkRect(obs[i], 10, 12);
         if (intersect(&pbox, &obox)) {
             lives -= 1;
@@ -209,7 +236,6 @@ static void mg_update(float dt) {
         }
     }
     for (int i=0;i<coinCount;i++) {
-        RectF pbox = shrinkRect(player, 8, 8);
         RectF cbox = shrinkRect(coins[i], 4, 4);
         if (intersect(&pbox, &cbox)) {
             collectedCoins += 1;
@@ -240,6 +266,16 @@ static void mg_draw(void) {
     } else {
         DrawRectangle((int)roadX, 0, (int)roadW, GetScreenHeight(), (Color){ 40, 40, 40, 255 });
         for (int y=-40;y<GetScreenHeight();y+=60) DrawRectangle((int)(roadX+roadW/2-4), y, 8, 30, (Color){220,220,220,180});
+    }
+
+    // Bordures latérales (textures optionnelles)
+    bool drewBorder = false;
+    drewBorder |= drawBorderTexture(texBorderLeft, 0.0f, roadX);
+    drewBorder |= drawBorderTexture(texBorderRight, roadX + roadW, GetScreenWidth() - (roadX + roadW));
+    if (!drewBorder) {
+        Color borderColor = (Color){ 30, 20, 20, 255 };
+        DrawRectangle((int)0, 0, (int)roadX, GetScreenHeight(), borderColor);
+        DrawRectangle((int)(roadX + roadW), 0, GetScreenWidth() - (int)(roadX + roadW), GetScreenHeight(), borderColor);
     }
 
     // Joueur
@@ -302,6 +338,8 @@ static void mg_unload(void) {
     if (texObstacle.id) UnloadTexture(texObstacle);
     if (texRoad.id) UnloadTexture(texRoad);
     if (texCoin.id) UnloadTexture(texCoin);
+    if (texBorderLeft.id) UnloadTexture(texBorderLeft);
+    if (texBorderRight.id) UnloadTexture(texBorderRight);
     texturesReady = false;
 }
 
