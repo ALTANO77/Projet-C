@@ -549,21 +549,27 @@ int main(int argc, char **argv) {
                 handleDebugDragging(&g);
                 if (!g.showDebugOverlay) {
                     Vector2 mouse = GetMousePosition();
-                    Rectangle bearRect = computeBearRect(&g);
-                    bool bearHovered = g.hasMenuBear && bearRect.width > 0 && CheckCollisionPointRec(mouse, bearRect);
-                    if (bearHovered && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-                        g.state = STATE_SHOP;
-                        g.activeZone = ZONE_NONE;
-                        break;
-                    }
+                    bool portalHovered = false;
+                    bool portalClicked = false;
                     for (int i = 0; i < ZONE_COUNT; ++i) {
                         Rectangle rect = computePortalRect(&g, i);
                         if (CheckCollisionPointRec(mouse, rect)) {
+                            portalHovered = true;
                             g.hoveredPortal = i;
                             if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
                                 g.state = zoneToState(HUB_PORTALS[i].zone);
                                 g.activeZone = HUB_PORTALS[i].zone;
+                                portalClicked = true;
+                                break;
                             }
+                        }
+                    }
+                    if (!portalClicked) {
+                        Rectangle bearRect = computeBearRect(&g);
+                        bool bearHovered = !portalHovered && g.hasMenuBear && bearRect.width > 0 && CheckCollisionPointRec(mouse, bearRect);
+                        if (bearHovered && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+                            g.state = STATE_SHOP;
+                            g.activeZone = ZONE_NONE;
                         }
                     }
                 }
