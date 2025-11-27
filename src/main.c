@@ -231,7 +231,7 @@ static void drawBearCloseup(const Game *g) {
 static void drawMinigameStatusTable(const Game *g) {
     static const char *zoneLabels[ZONE_COUNT] = { "Jardin", "Puzzle", "Bibliothèque", "Cuisine" };
     const float tableX = 60.0f;
-    const float tableY = 620.0f;
+    const float tableY = 780.0f;
     const float rowHeight = 42.0f;
     const float tableWidth = 460.0f;
     const float tableHeight = rowHeight * (ZONE_COUNT + 1);
@@ -496,6 +496,8 @@ int main(int argc, char **argv) {
     }
     g.menuBackground = loadTextureIfAvailable("assets/imagefond.png");
     g.hasMenuBackground = g.menuBackground.id != 0;
+    g.menuBear = loadTextureIfAvailable("assets/nounours_depart.png");
+    g.hasMenuBear = g.menuBear.id != 0;
     for (int i = 0; i < ZONE_COUNT; ++i) {
         g.zoneBackgrounds[i] = loadTextureIfAvailable(ZONE_BG_FILES[i]);
         g.hasZoneBackground[i] = g.zoneBackgrounds[i].id != 0;
@@ -610,6 +612,7 @@ int main(int argc, char **argv) {
                 break;
             case STATE_HUB: {
                 drawMenuBackground(&g);
+                drawBearCloseup(&g);
                 DrawText("Clique sur une porte | F11: Plein écran | F2: Debug (drag & drop)", 40, 40, 24, WHITE);
                 drawPortalHighlights(&g);
                 drawMinigameStatusTable(&g);
@@ -655,6 +658,7 @@ int main(int argc, char **argv) {
         StopMusicStream(g.music);
         UnloadMusicStream(g.music);
     }
+    if (g.hasMenuBear) UnloadTexture(g.menuBear);
     if (g.hasSoundOnIcon) UnloadTexture(g.soundOnIcon);
     if (g.hasSoundOffIcon) UnloadTexture(g.soundOffIcon);
     CloseAudioDevice();
