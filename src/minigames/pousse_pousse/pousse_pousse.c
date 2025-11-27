@@ -1,11 +1,18 @@
 #include "pousse_pousse.h"
 #include "raylib.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <math.h>
+
+#define TILE_COUNT 15
+
 
 // --------------------------------------------------
 // LOGIQUE DU TAQUIN 4x4
 // --------------------------------------------------
+
+
 
 void init_solved(Board *b) {
     int val = 1;
@@ -119,6 +126,9 @@ int is_solved(const Board *b) {
 static Board s_board;
 static bool  s_initialized = false;
 static bool  s_finished = false;
+static Texture2D s_tileTextures[TILE_COUNT];   // 15 images
+static bool s_tilesLoaded = false;
+static int s_moveCount = 0;   // nombre de coups joués
 
 // calcule la taille et la position du plateau en fonction de la fenêtre
 static void GetBoardLayout(int *tileSize, int *offsetX, int *offsetY) {
@@ -140,6 +150,24 @@ static void PoussePousse_Init(void) {
     init_random_board(&s_board);
     s_finished   = false;
     s_initialized = true;
+    s_moveCount = 0;   // on remet le compteur à zéro
+    
+    // Charger les 15 images si pas déjà fait
+    if (!s_tilesLoaded) {
+        for (int i = 0; i < TILE_COUNT; i++) {
+            char path[64];
+            snprintf(path, sizeof(path), "assets/pousse_pousse/parfaite%d.png", i+1);
+            Image img = LoadImage(path);
+
+            if (img.data != NULL) {
+                s_tileTextures[i] = LoadTextureFromImage(img);
+                UnloadImage(img);
+            } else {
+                TraceLog(LOG_WARNING, "Image manquante : %s", path);
+            }
+        }
+        s_tilesLoaded = true;
+    }
 }
 
 // appelé à chaque frame pour gérer les clics
@@ -160,7 +188,9 @@ static void PoussePousse_Update(float dt) {
 
             int col = (mx - offX) / tileSize;
             int row = (my - offY) / tileSize;
-            move_tile(&s_board, row, col);
+            if (move_tile(&s_board, row, col)) {
+                s_moveCount++;
+            }
         }
     }
 
@@ -168,38 +198,62 @@ static void PoussePousse_Update(float dt) {
         s_finished = true;
     }
 }
-
 // appelé à chaque frame pour dessiner
 static void PoussePousse_Draw(void) {
     if (!s_initialized) return;
 
     int tileSize, offX, offY;
     GetBoardLayout(&tileSize, &offX, &offY);
-    int boardSize = tileSize * SIZE;
 
     DrawText("Puzzle pousse-pousse : clique sur une case voisine du vide",
              60, 40, 24, RAYWHITE);
     DrawText("Retour (Backspace) pour quitter", 60, 70, 20, LIGHTGRAY);
-
+    DrawText(TextFormat("Coups : %d", s_moveCount), 60, 100, 20, RAYWHITE);
+    
+    
+    // === Boucle qui dessine les 16 cases ===
     for (int row = 0; row < SIZE; ++row) {
         for (int col = 0; col < SIZE; ++col) {
+
             int x = offX + col * tileSize;
             int y = offY + row * tileSize;
+            int v = s_board.grid[row][col]; // valeur de 0 à 15
 
-            DrawRectangleLines(x, y, tileSize, tileSize, DARKGRAY);
+            // --- CASE VIDE ---
+            if (v == 0) {
+                DrawRectangle(x, y, tileSize, tileSize, GRAY);    // fond gris
+                DrawRectangleLines(x, y, tileSize, tileSize, BLACK);
+                continue;
+            }
 
-            int v = s_board.grid[row][col];
-            if (v != 0) {
+            // --- CASE AVEC IMAGE (1 → parfaite1.png, 2 → parfaite2.png, ...) ---
+            if (s_tilesLoaded && v >= 1 && v <= TILE_COUNT) {
+
+                // On scale l’image pour remplir une case
+                float scale = (float)tileSize / s_tileTextures[v-1].width;
+
+                DrawTextureEx(
+                    s_tileTextures[v-1],
+                    (Vector2){ x, y },
+                    0.0f,
+                    scale,
+                    WHITE
+                );
+
+                DrawRectangleLines(x, y, tileSize, tileSize, BLACK); // contour
+
+            } else {
+                // Si jamais texture manquante → on affiche le numéro (sécurité)
                 const char *txt = TextFormat("%d", v);
                 int fontSize = tileSize / 2;
                 int tw = MeasureText(txt, fontSize);
-                int tx = x + (tileSize - tw) / 2;
-                int ty = y + (tileSize - fontSize) / 2;
-                DrawText(txt, tx, ty, fontSize, BLACK);
+                DrawText(txt, x + (tileSize - tw)/2, y + (tileSize - fontSize)/2, fontSize, BLACK);
+                DrawRectangleLines(x, y, tileSize, tileSize, BLACK);
             }
         }
     }
 
+    // Message de victoire
     if (s_finished) {
         DrawText("Bravo ! Puzzle resolu : tu as gagne 1 piece.",
                  60, GetScreenHeight() - 80, 24, (Color){ 120, 230, 140, 255 });
@@ -208,6 +262,12 @@ static void PoussePousse_Draw(void) {
 
 // appelé à la fin du mini-jeu
 static void PoussePousse_Unload(void) {
+    if (s_tilesLoaded) {
+        for (int i = 0; i < TILE_COUNT; i++) {
+            UnloadTexture(s_tileTextures[i]);
+        }
+        s_tilesLoaded = false;
+    }
     s_initialized = false;
 }
 
