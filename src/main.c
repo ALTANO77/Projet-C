@@ -83,6 +83,8 @@ typedef struct {
     bool hasSoundOffIcon;
     RectRatios shopPortalLayout;
     bool draggingShopPortal;
+    Texture2D outfitPreview;
+    bool hasOutfitPreview;
 } Game;
 
 typedef struct {
@@ -548,6 +550,8 @@ int main(int argc, char **argv) {
     g.hasMenuBackground = g.menuBackground.id != 0;
     g.menuBear = loadTextureIfAvailable("assets/nounours_depart.png");
     g.hasMenuBear = g.menuBear.id != 0;
+    g.outfitPreview = loadTextureIfAvailable("assets/habit1.png");
+    g.hasOutfitPreview = g.outfitPreview.id != 0;
     for (int i = 0; i < ZONE_COUNT; ++i) {
         g.zoneBackgrounds[i] = loadTextureIfAvailable(ZONE_BG_FILES[i]);
         g.hasZoneBackground[i] = g.zoneBackgrounds[i].id != 0;
@@ -699,9 +703,24 @@ int main(int argc, char **argv) {
                 drawCentered("Cuisine — Entrée: Mini‑jeu | Retour: Backspace", 160, 26, RAYWHITE);
                 break;
             case STATE_SHOP:
-                DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), RAYWHITE);
-                drawCentered("Boutique d'habits", 140, 56, (Color){ 50, 50, 80, 255 });
-                drawCentered("Clique sur un habit | Backspace pour revenir", 220, 26, GRAY);
+                DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), (Color){ 245, 245, 245, 255 });
+                drawCentered("Boutique d'habits", 100, 56, (Color){ 50, 50, 80, 255 });
+                drawCentered("Clique sur un habit | Backspace pour revenir", 160, 26, (Color){ 90, 90, 90, 255 });
+
+                if (g.hasOutfitPreview) {
+                    Rectangle src = { 0, 0, (float)g.outfitPreview.width, (float)g.outfitPreview.height };
+                    float previewSize = (float)fminf(GetScreenWidth(), GetScreenHeight()) * 0.45f;
+                    Rectangle dst = {
+                        GetScreenWidth() * 0.35f,
+                        GetScreenHeight() * 0.28f,
+                        previewSize,
+                        previewSize
+                    };
+                    DrawTexturePro(g.outfitPreview, src, dst, (Vector2){ 0, 0 }, 0.0f, WHITE);
+                    drawCentered("Habit #1", (int)(dst.y + dst.height + 50), 32, (Color){ 40, 40, 40, 255 });
+                } else {
+                    drawCentered("Image d'habit manquante (assets/habit1.png)", 320, 24, MAROON);
+                }
                 break;
             case STATE_MINIJEU:
                 if (g.currentMinigame.draw) g.currentMinigame.draw();
@@ -733,6 +752,7 @@ int main(int argc, char **argv) {
     if (g.hasMenuBear) UnloadTexture(g.menuBear);
     if (g.hasSoundOnIcon) UnloadTexture(g.soundOnIcon);
     if (g.hasSoundOffIcon) UnloadTexture(g.soundOffIcon);
+    if (g.hasOutfitPreview) UnloadTexture(g.outfitPreview);
     CloseAudioDevice();
     CloseWindow();
     return 0;
