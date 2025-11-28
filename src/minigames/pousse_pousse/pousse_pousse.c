@@ -129,6 +129,8 @@ static bool  s_finished = false;
 static Texture2D s_tileTextures[TILE_COUNT];   // 15 images
 static bool s_tilesLoaded = false;
 static int s_moveCount = 0;   // nombre de coups joués
+static Texture2D s_bgTexture;            // la texture de fond
+static bool      s_bgLoaded = false;     // est-ce qu'on l'a chargée ?
 
 // calcule la taille et la position du plateau en fonction de la fenêtre
 static void GetBoardLayout(int *tileSize, int *offsetX, int *offsetY) {
@@ -167,7 +169,20 @@ static void PoussePousse_Init(void) {
             }
         }
         s_tilesLoaded = true;
+  
     }
+    
+    // CHARGEMENT DU FOND 
+    if (!s_bgLoaded) {
+        Image bg = LoadImage("assets/pousse_pousse/fond.png");  
+            s_bgTexture = LoadTextureFromImage(bg);
+            UnloadImage(bg);
+            s_bgLoaded = true;
+        } 
+        else {
+            TraceLog(LOG_WARNING, "Fond pousse_pousse introuvable : assets/pousse_pousse/fond.png");
+        }
+
 }
 
 // appelé à chaque frame pour gérer les clics
@@ -202,14 +217,24 @@ static void PoussePousse_Update(float dt) {
 static void PoussePousse_Draw(void) {
     if (!s_initialized) return;
 
+    // DESSIN DU FOND D'ÉCRAN
+    if (s_bgLoaded) {
+        Rectangle src = { 0, 0, (float)s_bgTexture.width, (float)s_bgTexture.height };
+        Rectangle dst = { 0, 0, (float)GetScreenWidth(), (float)GetScreenHeight() };
+        DrawTexturePro(s_bgTexture, src, dst, (Vector2){0, 0}, 0.0f, WHITE);
+    } else {
+        // si pas d'image de fond, couleur de fond par défaut
+        ClearBackground((Color){ 30, 34, 46, 255 });
+    }
+
     int tileSize, offX, offY;
     GetBoardLayout(&tileSize, &offX, &offY);
 
     DrawText("Puzzle pousse-pousse : clique sur une case voisine du vide",
              60, 40, 24, RAYWHITE);
     DrawText("Retour (Backspace) pour quitter", 60, 70, 20, LIGHTGRAY);
-    DrawText(TextFormat("Coups : %d", s_moveCount), 60, 100, 20, RAYWHITE);
-    
+    DrawText(TextFormat("Coups : %d", s_moveCount),
+             60, 100, 20, RAYWHITE);
     
     // === Boucle qui dessine les 16 cases ===
     for (int row = 0; row < SIZE; ++row) {
