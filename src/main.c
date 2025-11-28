@@ -81,6 +81,10 @@ typedef struct {
     Texture2D soundOffIcon;
     bool hasSoundOnIcon;
     bool hasSoundOffIcon;
+    RectRatios shopPortalLayout;
+    bool draggingShopPortal;
+    Texture2D outfitPreview;
+    bool hasOutfitPreview;
 } Game;
 
 typedef struct {
@@ -101,6 +105,7 @@ static const RectRatios DEFAULT_PORTAL_LAYOUTS[ZONE_COUNT] = {
     { 0.395f, 0.25f, 0.11f, 0.30f },
     { 0.565f, 0.25f, 0.11f, 0.30f }
 };
+static const RectRatios DEFAULT_SHOP_PORTAL = { 0.78f, 0.20f, 0.12f, 0.32f };
 
 static const BearLayout DEFAULT_BEAR_LAYOUT = { 0.021f, 0.113f, 0.85f };
 static const char *PORTAL_KEYS[ZONE_COUNT] = { "jardin", "chambre", "grenier", "cuisine" };
@@ -149,6 +154,7 @@ static Texture2D loadTextureIfAvailable(const char *path) {
 static void initDefaultLayout(Game *g) {
     for (int i = 0; i < ZONE_COUNT; ++i) g->portalLayouts[i] = DEFAULT_PORTAL_LAYOUTS[i];
     g->bearLayout = DEFAULT_BEAR_LAYOUT;
+    g->shopPortalLayout = DEFAULT_SHOP_PORTAL;
 }
 
 static int portalIndexFromName(const char *name) {
@@ -185,6 +191,9 @@ static void loadMenuLayout(Game *g) {
             if (idx >= 0) {
                 g->portalLayouts[idx] = (RectRatios){ left, top, width, height };
                 clampPortalLayout(&g->portalLayouts[idx]);
+            } else if (strcmp(key, "shop") == 0) {
+                g->shopPortalLayout = (RectRatios){ left, top, width, height };
+                clampPortalLayout(&g->shopPortalLayout);
             }
         } else if (sscanf(line, "bear=%f,%f,%f", &left, &top, &height) == 3) {
             g->bearLayout = (BearLayout){ left, top, height };
@@ -202,6 +211,7 @@ static void saveMenuLayout(const Game *g) {
         const RectRatios *r = &g->portalLayouts[i];
         fprintf(f, "portal_%s=%.5f,%.5f,%.5f,%.5f\n", PORTAL_KEYS[i], r->left, r->top, r->width, r->height);
     }
+    fprintf(f, "portal_shop=%.5f,%.5f,%.5f,%.5f\n", g->shopPortalLayout.left, g->shopPortalLayout.top, g->shopPortalLayout.width, g->shopPortalLayout.height);
     fprintf(f, "bear=%.5f,%.5f,%.5f\n", g->bearLayout.left, g->bearLayout.top, g->bearLayout.heightRatio);
     fclose(f);
 }
@@ -365,6 +375,18 @@ static Rectangle computePortalRect(const Game *g, int idx) {
     };
 }
 
+static Rectangle computeShopPortalRect(const Game *g) {
+    float sw = (float)GetScreenWidth();
+    float sh = (float)GetScreenHeight();
+    RectRatios layout = g->shopPortalLayout;
+    return (Rectangle){
+        layout.left * sw,
+        layout.top * sh,
+        layout.width * sw,
+        layout.height * sh
+    };
+}
+
 static Rectangle computeBearRect(const Game *g) {
     if (!g->hasMenuBear) return (Rectangle){ 0 };
     float sh = (float)GetScreenHeight();
@@ -404,12 +426,22 @@ static void drawPortalHighlights(const Game *g) {
             DrawText(HUB_PORTALS[i].label, (int)(rect.x + rect.width * 0.2f), (int)(rect.y - 32), 28, RAYWHITE);
         }
     }
+    Rectangle shopRect = computeShopPortalRect(g);
+    if (shopRect.width > 0) {
+        bool hover = CheckCollisionPointRec(mouse, shopRect);
+        if (hover) {
+            DrawRectangleRounded(shopRect, 0.12f, 6, (Color){ 255, 255, 255, 35 });
+            DrawRectangleRoundedLines(shopRect, 0.12f, 6, (Color){ 120, 220, 255, 220 });
+            DrawText("Boutique", (int)(shopRect.x + shopRect.width * 0.1f), (int)(shopRect.y - 32), 28, RAYWHITE);
+        }
+    }
 }
 
 static void handleDebugDragging(Game *g) {
     if (!g->showDebugOverlay) {
         g->draggingPortal = -1;
         g->draggingBear = false;
+        g->draggingShopPortal = false;
         return;
     }
 
@@ -417,6 +449,7 @@ static void handleDebugDragging(Game *g) {
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
         g->draggingPortal = -1;
         g->draggingBear = false;
+        g->draggingShopPortal = false;
         for (int i = 0; i < ZONE_COUNT; ++i) {
             Rectangle rect = computePortalRect(g, i);
             if (CheckCollisionPointRec(mouse, rect)) {
@@ -425,7 +458,14 @@ static void handleDebugDragging(Game *g) {
                 break;
             }
         }
-        if (g->draggingPortal == -1 && g->hasMenuBear) {
+        if (g->draggingPortal == -1) {
+            Rectangle shopRect = computeShopPortalRect(g);
+            if (CheckCollisionPointRec(mouse, shopRect)) {
+                g->draggingShopPortal = true;
+                g->dragOffset = (Vector2){ mouse.x - shopRect.x, mouse.y - shopRect.y };
+            }
+        }
+        if (!g->draggingShopPortal && g->draggingPortal == -1 && g->hasMenuBear) {
             Rectangle bearRect = computeBearRect(g);
             if (bearRect.width > 0 && CheckCollisionPointRec(mouse, bearRect)) {
                 g->draggingBear = true;
@@ -442,6 +482,11 @@ static void handleDebugDragging(Game *g) {
             layout->left = (mouse.x - g->dragOffset.x) / sw;
             layout->top = (mouse.y - g->dragOffset.y) / sh;
             clampPortalLayout(layout);
+        } else if (g->draggingShopPortal) {
+            RectRatios *layout = &g->shopPortalLayout;
+            layout->left = (mouse.x - g->dragOffset.x) / sw;
+            layout->top = (mouse.y - g->dragOffset.y) / sh;
+            clampPortalLayout(layout);
         } else if (g->draggingBear) {
             float widthRatio = clampf(getBearWidthRatio(g), 0.0f, 0.99f);
             g->bearLayout.left = clampf((mouse.x - g->dragOffset.x) / sw, 0.0f, 1.0f - widthRatio);
@@ -452,6 +497,7 @@ static void handleDebugDragging(Game *g) {
     if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON)) {
         g->draggingPortal = -1;
         g->draggingBear = false;
+        g->draggingShopPortal = false;
     }
 }
 
@@ -459,7 +505,7 @@ static void drawDebugOverlay(const Game *g) {
     if (!g->showDebugOverlay) return;
     Vector2 mouse = GetMousePosition();
     const int panelWidth = 400;
-    const int panelHeight = 40 + ZONE_COUNT * 24;
+    const int panelHeight = 40 + (ZONE_COUNT + 1) * 24;
     DrawRectangle(30, 90, panelWidth, panelHeight, (Color){ 0, 0, 0, 160 });
     DrawRectangleLines(30, 90, panelWidth, panelHeight, (Color){ 255, 255, 255, 80 });
     DrawText(TextFormat("Mouse: %.0f, %.0f", mouse.x, mouse.y), 40, 100, 20, RAYWHITE);
@@ -471,6 +517,11 @@ static void drawDebugOverlay(const Game *g) {
                             rect.x, rect.y, rect.width, rect.height),
                  40, 130 + i * 24, 18, LIGHTGRAY);
     }
+    Rectangle shopRect = computeShopPortalRect(g);
+    DrawRectangleLinesEx(shopRect, 2.0f, (Color){ 0, 180, 255, 150 });
+    DrawText(TextFormat("Boutique: x=%.0f y=%.0f w=%.0f h=%.0f",
+                        shopRect.x, shopRect.y, shopRect.width, shopRect.height),
+             40, 130 + ZONE_COUNT * 24, 18, LIGHTGRAY);
 }
 
 static GameState zoneToState(ZoneId zone) {
@@ -499,6 +550,8 @@ int main(int argc, char **argv) {
     g.hasMenuBackground = g.menuBackground.id != 0;
     g.menuBear = loadTextureIfAvailable("assets/nounours_depart.png");
     g.hasMenuBear = g.menuBear.id != 0;
+    g.outfitPreview = loadTextureIfAvailable("assets/habit1.png");
+    g.hasOutfitPreview = g.outfitPreview.id != 0;
     for (int i = 0; i < ZONE_COUNT; ++i) {
         g.zoneBackgrounds[i] = loadTextureIfAvailable(ZONE_BG_FILES[i]);
         g.hasZoneBackground[i] = g.zoneBackgrounds[i].id != 0;
@@ -511,6 +564,7 @@ int main(int argc, char **argv) {
     g.showDebugOverlay = false;
     g.draggingPortal = -1;
     g.draggingBear = false;
+    g.draggingShopPortal = false;
     g.hoveredPortal = -1;
     g.music = LoadMusicStream("assets/music.ogg");
     g.hasMusic = g.music.frameCount > 0;
@@ -565,9 +619,9 @@ int main(int argc, char **argv) {
                         }
                     }
                     if (!portalClicked) {
-                        Rectangle bearRect = computeBearRect(&g);
-                        bool bearHovered = !portalHovered && g.hasMenuBear && bearRect.width > 0 && CheckCollisionPointRec(mouse, bearRect);
-                        if (bearHovered && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+                        Rectangle shopRect = computeShopPortalRect(&g);
+                        bool shopHovered = !portalHovered && CheckCollisionPointRec(mouse, shopRect);
+                        if (shopHovered && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
                             g.state = STATE_SHOP;
                             g.activeZone = ZONE_NONE;
                         }
@@ -649,10 +703,24 @@ int main(int argc, char **argv) {
                 drawCentered("Cuisine — Entrée: Mini‑jeu | Retour: Backspace", 160, 26, RAYWHITE);
                 break;
             case STATE_SHOP:
-                DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), RAYWHITE);
-                drawCentered("Boutique d'habits", 140, 56, (Color){ 50, 50, 80, 255 });
-                drawCentered("Clique sur un habit (WIP) | Backspace pour revenir", 220, 26, GRAY);
-                drawCentered("Prévoit d'afficher ici les tenues disponibles.", 320, 22, DARKGRAY);
+                DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), (Color){ 245, 245, 245, 255 });
+                drawCentered("Boutique d'habits", 100, 56, (Color){ 50, 50, 80, 255 });
+                drawCentered("Clique sur un habit | Backspace pour revenir", 160, 26, (Color){ 90, 90, 90, 255 });
+
+                if (g.hasOutfitPreview) {
+                    Rectangle src = { 0, 0, (float)g.outfitPreview.width, (float)g.outfitPreview.height };
+                    float previewSize = (float)fminf(GetScreenWidth(), GetScreenHeight()) * 0.45f;
+                    Rectangle dst = {
+                        GetScreenWidth() * 0.35f,
+                        GetScreenHeight() * 0.28f,
+                        previewSize,
+                        previewSize
+                    };
+                    DrawTexturePro(g.outfitPreview, src, dst, (Vector2){ 0, 0 }, 0.0f, WHITE);
+                    drawCentered("Habit #1", (int)(dst.y + dst.height + 50), 32, (Color){ 40, 40, 40, 255 });
+                } else {
+                    drawCentered("Image d'habit manquante (assets/habit1.png)", 320, 24, MAROON);
+                }
                 break;
             case STATE_MINIJEU:
                 if (g.currentMinigame.draw) g.currentMinigame.draw();
@@ -684,6 +752,7 @@ int main(int argc, char **argv) {
     if (g.hasMenuBear) UnloadTexture(g.menuBear);
     if (g.hasSoundOnIcon) UnloadTexture(g.soundOnIcon);
     if (g.hasSoundOffIcon) UnloadTexture(g.soundOffIcon);
+    if (g.hasOutfitPreview) UnloadTexture(g.outfitPreview);
     CloseAudioDevice();
     CloseWindow();
     return 0;
