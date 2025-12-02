@@ -8,6 +8,7 @@
 #include "minigames/traffic/traffic.h"
 #include "minigames/gateau/gateau.h"
 #include "minigames/youre_cooked/youre_cooked.h"
+#include "minigames/boutique/boutique.h"
 
 typedef enum {
     STATE_TITLE = 0,
@@ -65,6 +66,9 @@ typedef struct {
     Texture2D menuBear;
     bool hasMenuBackground;
     bool hasMenuBear;
+    Texture2D bearOutfits[5];  // Images nounours avec différentes tenues
+    bool hasBearOutfit[5];
+    int currentBearOutfit;  // Index de la tenue actuellement portée (-1 = départ)
     Texture2D zoneBackgrounds[ZONE_COUNT];
     bool hasZoneBackground[ZONE_COUNT];
     bool showDebugOverlay;
@@ -85,6 +89,13 @@ typedef struct {
     bool draggingShopPortal;
     Texture2D outfitPreview;
     bool hasOutfitPreview;
+    Texture2D outfits[5];
+    bool hasOutfit[5];
+    const char *outfitNames[5];
+    int selectedOutfit;
+    int outfitPrices[5];
+    bool outfitOwned[5];
+    BoutiqueData boutiqueData;
 } Game;
 
 typedef struct {
@@ -232,11 +243,20 @@ static void drawMenuBackground(const Game *g) {
 }
 
 static void drawBearCloseup(const Game *g) {
-    if (!g->hasMenuBear) return;
+    Texture2D bearToDraw = g->menuBear;
+    bool hasBear = g->hasMenuBear;
+    
+    // Si une tenue est sélectionnée et disponible, utiliser cette image
+    if (g->currentBearOutfit >= 0 && g->currentBearOutfit < 5 && g->hasBearOutfit[g->currentBearOutfit]) {
+        bearToDraw = g->bearOutfits[g->currentBearOutfit];
+        hasBear = true;
+    }
+    
+    if (!hasBear) return;
     Rectangle dst = computeBearRect(g);
     if (dst.width <= 0 || dst.height <= 0) return;
-    Rectangle src = { 0, 0, (float)g->menuBear.width, (float)g->menuBear.height };
-    DrawTexturePro(g->menuBear, src, dst, (Vector2){ 0, 0 }, 0.0f, WHITE);
+    Rectangle src = { 0, 0, (float)bearToDraw.width, (float)bearToDraw.height };
+    DrawTexturePro(bearToDraw, src, dst, (Vector2){ 0, 0 }, 0.0f, WHITE);
 }
 
 static void drawMinigameStatusTable(const Game *g) {
@@ -388,11 +408,20 @@ static Rectangle computeShopPortalRect(const Game *g) {
 }
 
 static Rectangle computeBearRect(const Game *g) {
-    if (!g->hasMenuBear) return (Rectangle){ 0 };
+    Texture2D bearTex = g->menuBear;
+    bool hasBear = g->hasMenuBear;
+    
+    // Utiliser la texture de la tenue sélectionnée si disponible
+    if (g->currentBearOutfit >= 0 && g->currentBearOutfit < 5 && g->hasBearOutfit[g->currentBearOutfit]) {
+        bearTex = g->bearOutfits[g->currentBearOutfit];
+        hasBear = true;
+    }
+    
+    if (!hasBear) return (Rectangle){ 0 };
     float sh = (float)GetScreenHeight();
     float sw = (float)GetScreenWidth();
     float bearHeight = g->bearLayout.heightRatio * sh;
-    float aspect = g->menuBear.height > 0 ? (float)g->menuBear.width / (float)g->menuBear.height : 1.0f;
+    float aspect = bearTex.height > 0 ? (float)bearTex.width / (float)bearTex.height : 1.0f;
     float bearWidth = bearHeight * aspect;
     return (Rectangle){
         g->bearLayout.left * sw,
@@ -550,8 +579,38 @@ int main(int argc, char **argv) {
     g.hasMenuBackground = g.menuBackground.id != 0;
     g.menuBear = loadTextureIfAvailable("assets/nounours_depart.png");
     g.hasMenuBear = g.menuBear.id != 0;
-    g.outfitPreview = loadTextureIfAvailable("assets/habit1.png");
-    g.hasOutfitPreview = g.outfitPreview.id != 0;
+    
+    // Charger les nounours avec différentes tenues
+    const char *bearOutfitFiles[5] = {
+        "assets/nounours_noel.png",
+        "assets/nounours_aviateur.png",
+        "assets/nounours_plage.png",
+        "assets/nounours_vampire.png",
+        "assets/nounours_maillot.png"
+    };
+    for (int i = 0; i < 5; ++i) {
+        g.bearOutfits[i] = loadTextureIfAvailable(bearOutfitFiles[i]);
+        g.hasBearOutfit[i] = g.bearOutfits[i].id != 0;
+    }
+    g.currentBearOutfit = -1;  // -1 = tenue de départ
+    
+    // Initialiser la boutique (charge les textures depuis assets/boutique/)
+    g.boutiqueData.collectibles = &g.collectibles;
+    g.boutiqueData.currentBearOutfit = &g.currentBearOutfit;
+    Boutique_Init(&g.boutiqueData);
+    
+    // Synchroniser les données avec la structure Game (pour compatibilité)
+    for (int i = 0; i < 5; ++i) {
+        g.outfits[i] = g.boutiqueData.outfits[i];
+        g.hasOutfit[i] = g.boutiqueData.hasOutfit[i];
+        g.outfitNames[i] = g.boutiqueData.outfitNames[i];
+        g.outfitPrices[i] = g.boutiqueData.outfitPrices[i];
+        g.outfitOwned[i] = g.boutiqueData.outfitOwned[i];
+    }
+    g.selectedOutfit = 0;
+    // Initialiser outfitPreview avec la première tenue
+    g.outfitPreview = g.outfits[0];
+    g.hasOutfitPreview = g.hasOutfit[0];
     for (int i = 0; i < ZONE_COUNT; ++i) {
         g.zoneBackgrounds[i] = loadTextureIfAvailable(ZONE_BG_FILES[i]);
         g.hasZoneBackground[i] = g.zoneBackgrounds[i].id != 0;
@@ -646,6 +705,16 @@ int main(int argc, char **argv) {
                 break;
             case STATE_SHOP:
                 if (IsKeyPressed(KEY_BACKSPACE)) { g.state = STATE_HUB; g.activeZone = ZONE_NONE; }
+                // Synchroniser les données avant la mise à jour
+                for (int i = 0; i < 5; ++i) {
+                    g.boutiqueData.outfitOwned[i] = g.outfitOwned[i];
+                }
+                Boutique_Update(&g.boutiqueData);
+                // Synchroniser les données après la mise à jour
+                for (int i = 0; i < 5; ++i) {
+                    g.outfitOwned[i] = g.boutiqueData.outfitOwned[i];
+                }
+                // currentBearOutfit est déjà synchronisé via pointeur
                 break;
             case STATE_MINIJEU:
                 if (IsKeyPressed(KEY_BACKSPACE)) {
@@ -703,24 +772,11 @@ int main(int argc, char **argv) {
                 drawCentered("Cuisine — Entrée: Mini‑jeu | Retour: Backspace", 160, 26, RAYWHITE);
                 break;
             case STATE_SHOP:
-                DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), (Color){ 245, 245, 245, 255 });
-                drawCentered("Boutique d'habits", 100, 56, (Color){ 50, 50, 80, 255 });
-                drawCentered("Clique sur un habit | Backspace pour revenir", 160, 26, (Color){ 90, 90, 90, 255 });
-
-                if (g.hasOutfitPreview) {
-                    Rectangle src = { 0, 0, (float)g.outfitPreview.width, (float)g.outfitPreview.height };
-                    float previewSize = (float)fminf(GetScreenWidth(), GetScreenHeight()) * 0.45f;
-                    Rectangle dst = {
-                        GetScreenWidth() * 0.35f,
-                        GetScreenHeight() * 0.28f,
-                        previewSize,
-                        previewSize
-                    };
-                    DrawTexturePro(g.outfitPreview, src, dst, (Vector2){ 0, 0 }, 0.0f, WHITE);
-                    drawCentered("Habit #1", (int)(dst.y + dst.height + 50), 32, (Color){ 40, 40, 40, 255 });
-                } else {
-                    drawCentered("Image d'habit manquante (assets/habit1.png)", 320, 24, MAROON);
+                // Synchroniser les données avant l'affichage
+                for (int i = 0; i < 5; ++i) {
+                    g.boutiqueData.outfitOwned[i] = g.outfitOwned[i];
                 }
+                Boutique_Draw(&g.boutiqueData);
                 break;
             case STATE_MINIJEU:
                 if (g.currentMinigame.draw) g.currentMinigame.draw();
@@ -750,9 +806,14 @@ int main(int argc, char **argv) {
         UnloadMusicStream(g.music);
     }
     if (g.hasMenuBear) UnloadTexture(g.menuBear);
+    for (int i = 0; i < 5; ++i) {
+        if (g.hasBearOutfit[i]) UnloadTexture(g.bearOutfits[i]);
+    }
     if (g.hasSoundOnIcon) UnloadTexture(g.soundOnIcon);
     if (g.hasSoundOffIcon) UnloadTexture(g.soundOffIcon);
     if (g.hasOutfitPreview) UnloadTexture(g.outfitPreview);
+    // Les textures des tenues sont déchargées par Boutique_Unload
+    Boutique_Unload(&g.boutiqueData);
     CloseAudioDevice();
     CloseWindow();
     return 0;

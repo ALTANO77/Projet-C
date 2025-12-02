@@ -1,0 +1,188 @@
+// Module Boutique - Gestion de la boutique d'habits
+#include "boutique.h"
+#include "raylib.h"
+#include <stdio.h>
+#include <string.h>
+#include <math.h>
+
+// Fonction utilitaire pour charger une texture si disponible
+static Texture2D loadTextureIfAvailable(const char *path) {
+    Texture2D tex = {0};
+    Image img = LoadImage(path);
+    if (img.data) {
+        tex = LoadTextureFromImage(img);
+        UnloadImage(img);
+    }
+    return tex;
+}
+
+// Fonction utilitaire pour dessiner du texte centré
+static void drawCentered(const char *text, int y, int fontSize, Color color) {
+    int textWidth = MeasureText(text, fontSize);
+    int x = (GetScreenWidth() - textWidth) / 2;
+    DrawText(text, x, y, fontSize, color);
+}
+
+// Fonction pour dessiner le compteur de pièces
+static void drawCoinCounter(int collectibles) {
+    const char *label = TextFormat("Pieces : %d", collectibles);
+    int fontSize = 30;
+    int textWidth = MeasureText(label, fontSize);
+    int padding = 18;
+    Rectangle box = {
+        GetScreenWidth() - textWidth - padding * 2 - 40,
+        30,
+        (float)textWidth + padding * 2,
+        50
+    };
+    DrawRectangleRounded(box, 0.12f, 6, (Color){ 0, 0, 0, 160 });
+    DrawText(label, (int)(box.x + padding), (int)(box.y + 12), fontSize, GOLD);
+}
+
+// Initialisation de la boutique - charge les textures depuis assets/boutique/
+void Boutique_Init(BoutiqueData *data) {
+    // Les noms des tenues
+    data->outfitNames[0] = "Noël";
+    data->outfitNames[1] = "Aviateur";
+    data->outfitNames[2] = "Plage";
+    data->outfitNames[3] = "Vampire";
+    data->outfitNames[4] = "Maillot";
+    
+    // Les fichiers des tenues dans assets/boutique/
+    const char *outfitFiles[5] = {
+        "assets/boutique/tenue_noel.png",
+        "assets/boutique/tenue_aviateur.png",
+        "assets/boutique/tenue_plage.png",
+        "assets/boutique/tenue_vampire.png",
+        "assets/boutique/tenue_maillot.png"
+    };
+    
+    // Prix des tenues (0 pour les tests)
+    data->outfitPrices[0] = 0;
+    data->outfitPrices[1] = 0;
+    data->outfitPrices[2] = 0;
+    data->outfitPrices[3] = 0;
+    data->outfitPrices[4] = 0;
+    
+    // Charger les textures
+    for (int i = 0; i < 5; ++i) {
+        data->outfits[i] = loadTextureIfAvailable(outfitFiles[i]);
+        data->hasOutfit[i] = data->outfits[i].id != 0;
+        data->outfitOwned[i] = false; // Aucune tenue achetée au départ
+    }
+}
+
+// Mise à jour de la boutique (gestion des clics)
+void Boutique_Update(BoutiqueData *data) {
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        Vector2 mouse = GetMousePosition();
+        float outfitSize = (float)fminf(GetScreenWidth(), GetScreenHeight()) * 0.35f;
+        float spacing = outfitSize * 1.1f;
+        float totalWidth = 5 * spacing;
+        float startX = (GetScreenWidth() - totalWidth) / 2.0f;
+        float startY = GetScreenHeight() * 0.35f;
+        
+        for (int i = 0; i < 5; ++i) {
+            Rectangle outfitRect = {
+                startX + i * spacing,
+                startY,
+                outfitSize,
+                outfitSize
+            };
+            
+            // Vérifier si on clique sur une tenue
+            if (CheckCollisionPointRec(mouse, outfitRect)) {
+                // Si la tenue est déjà achetée, la sélectionner (la porter)
+                if (data->outfitOwned[i]) {
+                    *data->currentBearOutfit = i;
+                }
+                // Sinon, si le joueur a assez de pièces, acheter la tenue
+                else if (*data->collectibles >= data->outfitPrices[i]) {
+                    data->outfitOwned[i] = true;
+                    *data->collectibles -= data->outfitPrices[i];
+                    // Sélectionner automatiquement la tenue après l'achat
+                    *data->currentBearOutfit = i;
+                }
+                break;
+            }
+        }
+    }
+}
+
+// Affichage de la boutique
+void Boutique_Draw(BoutiqueData *data) {
+    DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), (Color){ 245, 245, 245, 255 });
+    drawCentered("Boutique d'habits", 100, 56, (Color){ 50, 50, 80, 255 });
+    drawCentered("Cliquez pour acheter | Cliquez sur une tenue achetée pour la porter | Backspace pour revenir", 160, 26, (Color){ 90, 90, 90, 255 });
+    
+    // Afficher le compteur de pièces
+    drawCoinCounter(*data->collectibles);
+
+    // Afficher les 5 tenues côte à côte
+    float outfitSize = (float)fminf(GetScreenWidth(), GetScreenHeight()) * 0.35f;
+    float spacing = outfitSize * 1.1f;
+    float totalWidth = 5 * spacing;
+    float startX = (GetScreenWidth() - totalWidth) / 2.0f;
+    float startY = GetScreenHeight() * 0.35f;
+    Vector2 mouse = GetMousePosition();
+    
+    for (int i = 0; i < 5; ++i) {
+        Rectangle outfitRect = {
+            startX + i * spacing,
+            startY,
+            outfitSize,
+            outfitSize
+        };
+        
+        bool canAfford = *data->collectibles >= data->outfitPrices[i];
+        bool isOwned = data->outfitOwned[i];
+        bool hovered = CheckCollisionPointRec(mouse, outfitRect);
+        
+        // Bordure si survolée ou si c'est la tenue actuellement portée
+        if (hovered && !isOwned) {
+            DrawRectangleLinesEx(outfitRect, 3.0f, canAfford ? (Color){ 50, 200, 50, 255 } : (Color){ 200, 50, 50, 255 });
+        } else if (isOwned && *data->currentBearOutfit == i) {
+            // Bordure dorée pour la tenue actuellement portée
+            DrawRectangleLinesEx(outfitRect, 4.0f, (Color){ 255, 215, 0, 255 });
+        }
+        
+        // Afficher la tenue avec opacité réduite si non achetée
+        Color tint = isOwned ? WHITE : (canAfford ? (Color){ 255, 255, 255, 180 } : (Color){ 150, 150, 150, 180 });
+        if (data->hasOutfit[i]) {
+            Rectangle src = { 0, 0, (float)data->outfits[i].width, (float)data->outfits[i].height };
+            DrawTexturePro(data->outfits[i], src, outfitRect, (Vector2){ 0, 0 }, 0.0f, tint);
+        } else {
+            DrawRectangleRec(outfitRect, (Color){ 100, 100, 100, 255 });
+            DrawText("?", (int)(outfitRect.x + outfitRect.width/2 - 10), (int)(outfitRect.y + outfitRect.height/2 - 10), 20, WHITE);
+        }
+        
+        // Nom de la tenue sous l'image
+        const char *name = data->outfitNames[i];
+        int textWidth = MeasureText(name, 24);
+        DrawText(name, (int)(outfitRect.x + (outfitRect.width - textWidth) / 2), (int)(outfitRect.y + outfitRect.height + 15), 24, (Color){ 40, 40, 40, 255 });
+        
+        // Prix ou "Acheté"
+        float priceY = outfitRect.y + outfitRect.height + 50;
+        if (isOwned) {
+            const char *ownedText = "Acheté";
+            int ownedWidth = MeasureText(ownedText, 22);
+            DrawText(ownedText, (int)(outfitRect.x + (outfitRect.width - ownedWidth) / 2), (int)priceY, 22, (Color){ 50, 200, 50, 255 });
+        } else {
+            char priceText[32];
+            snprintf(priceText, sizeof(priceText), "%d pièces", data->outfitPrices[i]);
+            int priceWidth = MeasureText(priceText, 22);
+            Color priceColor = canAfford ? (Color){ 40, 40, 40, 255 } : (Color){ 200, 50, 50, 255 };
+            DrawText(priceText, (int)(outfitRect.x + (outfitRect.width - priceWidth) / 2), (int)priceY, 22, priceColor);
+        }
+    }
+}
+
+// Déchargement des ressources
+void Boutique_Unload(BoutiqueData *data) {
+    for (int i = 0; i < 5; ++i) {
+        if (data->hasOutfit[i]) {
+            UnloadTexture(data->outfits[i]);
+        }
+    }
+}
+
