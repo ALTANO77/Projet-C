@@ -1,104 +1,315 @@
-// Pousse-Pousse 10x10 (Sokoban léger)
 #include "pousse_pousse.h"
+#include "raylib.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <math.h>
 
-typedef enum { T_EMPTY=0, T_WALL, T_BOX, T_TARGET, T_BOX_ON_TARGET } Tile;
+#define TILE_COUNT 15
 
-static int gridW = 10, gridH = 10;
-static Tile grid[10][10];
-static int playerX, playerY;
-static bool levelWon;
 
-static void loadLevel(void) {
-    // Niveau simple 10x10
-    int map[10][10] = {
-        {1,1,1,1,1,1,1,1,1,1},
-        {1,0,0,0,0,0,0,0,0,1},
-        {1,0,1,1,0,0,0,1,0,1},
-        {1,0,0,1,0,3,0,1,0,1},
-        {1,0,0,1,0,0,0,1,0,1},
-        {1,0,0,0,0,1,0,0,0,1},
-        {1,0,0,0,0,1,0,0,4,1},
-        {1,0,0,0,0,0,0,0,0,1},
-        {1,0,0,0,0,0,0,0,0,1},
-        {1,1,1,1,1,1,1,1,1,1},
-    };
-    for (int y=0;y<gridH;y++) for (int x=0;x<gridW;x++) {
-        int v = map[y][x];
-        grid[y][x] = (v==1)?T_WALL:(v==3?T_BOX:(v==4?T_TARGET:T_EMPTY));
+// --------------------------------------------------
+// LOGIQUE DU TAQUIN 4x4
+// --------------------------------------------------
+
+
+
+void init_solved(Board *b) {
+    int val = 1;
+    for (int i = 0; i < SIZE; ++i) {
+        for (int j = 0; j < SIZE; ++j) {
+            if (i == SIZE - 1 && j == SIZE - 1)
+                b->grid[i][j] = 0; // case vide
+            else
+                b->grid[i][j] = val++;
+        }
     }
-    playerX = 2; playerY = 2;
-    levelWon = false;
+    b->empty_row = SIZE - 1;
+    b->empty_col = SIZE - 1;
 }
 
-static bool isBlocked(int x, int y) {
-    if (x<0||y<0||x>=gridW||y>=gridH) return true;
-    Tile t = grid[y][x];
-    return t==T_WALL;
-}
+// mélange en effectuant des mouvements valides de la case vide
+void shuffle_board(Board *b, int moves_count) {
+    srand((unsigned int)time(NULL));
 
-static bool isFree(int x, int y) {
-    if (x<0||y<0||x>=gridW||y>=gridH) return false;
-    Tile t = grid[y][x];
-    return t==T_EMPTY || t==T_TARGET;
-}
+    for (int m = 0; m < moves_count; ++m) {
+        int directions[4][2] = { {-1,0},{1,0},{0,-1},{0,1} };
+        int possible[4];
+        int pcount = 0;
 
-static void tryMove(int dx, int dy) {
-    if (levelWon) return;
-    int nx = playerX + dx;
-    int ny = playerY + dy;
-    if (isBlocked(nx, ny)) return;
-    // Box push
-    if (grid[ny][nx]==T_BOX || grid[ny][nx]==T_BOX_ON_TARGET) {
-        int bx = nx + dx, by = ny + dy;
-        if (!isFree(bx, by)) return; // cannot push
-        // Move box
-        bool intoTarget = (grid[by][bx]==T_TARGET);
-        grid[by][bx] = intoTarget ? T_BOX_ON_TARGET : T_BOX;
-        // Clear old box tile (if was on target, leave target)
-        grid[ny][nx] = (grid[ny][nx]==T_BOX_ON_TARGET) ? T_TARGET : T_EMPTY;
+        for (int d = 0; d < 4; ++d) {
+            int nr = b->empty_row + directions[d][0];
+            int nc = b->empty_col + directions[d][1];
+            if (nr >= 0 && nr < SIZE && nc >= 0 && nc < SIZE) {
+                possible[pcount++] = d;
+            }
+        }
+
+        int chosen = possible[rand() % pcount];
+        int nr = b->empty_row + directions[chosen][0];
+        int nc = b->empty_col + directions[chosen][1];
+
+        int tmp = b->grid[nr][nc];
+        b->grid[nr][nc] = 0;
+        b->grid[b->empty_row][b->empty_col] = tmp;
+
+        b->empty_row = nr;
+        b->empty_col = nc;
     }
-    // Move player
-    playerX = nx; playerY = ny;
-    // Win check: any BOX left not on target?
-    bool anyBoxOff = false;
-    for (int y=0;y<gridH;y++) for (int x=0;x<gridW;x++) if (grid[y][x]==T_BOX) anyBoxOff = true;
-    if (!anyBoxOff) levelWon = true;
 }
 
-static void mg_init(void) { loadLevel(); }
+void init_random_board(Board *b) {
+    init_solved(b);
+    shuffle_board(b, 1000);
+}
 
-static void mg_update(float dt) {
+int can_move_tile(const Board *b, int row, int col) {
+    if (row < 0 || row >= SIZE || col < 0 || col >= SIZE) return 0;
+    if (b->grid[row][col] == 0) return 0;
+
+    int dr = abs(row - b->empty_row);
+    int dc = abs(col - b->empty_col);
+
+    return (dr + dc == 1); // voisin orthogonal du vide
+}
+
+int move_tile(Board *b, int row, int col) {
+    if (!can_move_tile(b, row, col)) return 0;
+
+    int tmp = b->grid[row][col];
+    b->grid[row][col] = 0;
+    b->grid[b->empty_row][b->empty_col] = tmp;
+
+    b->empty_row = row;
+    b->empty_col = col;
+    return 1;
+}
+
+int move_tile_by_number(Board *b, int number) {
+    if (number < 1 || number > 15) return 0;
+
+    int row = -1, col = -1;
+    for (int i = 0; i < SIZE; ++i) {
+        for (int j = 0; j < SIZE; ++j) {
+            if (b->grid[i][j] == number) {
+                row = i;
+                col = j;
+                break;
+            }
+        }
+        if (row != -1) break;
+    }
+
+    if (row == -1) return 0;
+    return move_tile(b, row, col);
+}
+
+int is_solved(const Board *b) {
+    int val = 1;
+    for (int i = 0; i < SIZE; ++i) {
+        for (int j = 0; j < SIZE; ++j) {
+            if (i == SIZE - 1 && j == SIZE - 1) {
+                if (b->grid[i][j] != 0) return 0;
+            } else {
+                if (b->grid[i][j] != val++) return 0;
+            }
+        }
+    }
+    return 1;
+}
+
+// --------------------------------------------------
+// PARTIE MINI-JEU RAYLIB (intégration avec MinigameAPI)
+// --------------------------------------------------
+
+// état interne du mini-jeu
+static Board s_board;
+static bool  s_initialized = false;
+static bool  s_finished = false;
+static Texture2D s_tileTextures[TILE_COUNT];   // 15 images
+static bool s_tilesLoaded = false;
+static int s_moveCount = 0;   // nombre de coups joués
+static Texture2D s_bgTexture;            // la texture de fond
+static bool      s_bgLoaded = false;     // est-ce qu'on l'a chargée ?
+
+// calcule la taille et la position du plateau en fonction de la fenêtre
+static void GetBoardLayout(int *tileSize, int *offsetX, int *offsetY) {
+    int sw = GetScreenWidth();
+    int sh = GetScreenHeight();
+    int minSide = (sw < sh ? sw : sh);
+
+    int t = minSide / (SIZE + 2);   // un peu de marge autour
+    if (t < 40) t = 40;
+    int boardPixels = t * SIZE;
+
+    *tileSize = t;
+    *offsetX  = (sw - boardPixels) / 2;
+    *offsetY  = (sh - boardPixels) / 2;
+}
+
+// appelé quand on entre dans le mini-jeu
+static void PoussePousse_Init(void) {
+    init_random_board(&s_board);
+    s_finished   = false;
+    s_initialized = true;
+    s_moveCount = 0;   // on remet le compteur à zéro
+    
+    // Charger les 15 images si pas déjà fait
+    if (!s_tilesLoaded) {
+        for (int i = 0; i < TILE_COUNT; i++) {
+            char path[64];
+            snprintf(path, sizeof(path), "assets/pousse_pousse/parfaite%d.png", i+1);
+            Image img = LoadImage(path);
+
+            if (img.data != NULL) {
+                s_tileTextures[i] = LoadTextureFromImage(img);
+                UnloadImage(img);
+            } else {
+                TraceLog(LOG_WARNING, "Image manquante : %s", path);
+            }
+        }
+        s_tilesLoaded = true;
+  
+    }
+    
+    // CHARGEMENT DU FOND 
+    if (!s_bgLoaded) {
+        Image bg = LoadImage("assets/pousse_pousse/fond.png");  
+            s_bgTexture = LoadTextureFromImage(bg);
+            UnloadImage(bg);
+            s_bgLoaded = true;
+        } 
+        else {
+            TraceLog(LOG_WARNING, "Fond pousse_pousse introuvable : assets/pousse_pousse/fond.png");
+        }
+
+}
+
+// appelé à chaque frame pour gérer les clics
+static void PoussePousse_Update(float dt) {
     (void)dt;
-    if (IsKeyPressed(KEY_LEFT)) tryMove(-1,0);
-    if (IsKeyPressed(KEY_RIGHT)) tryMove(1,0);
-    if (IsKeyPressed(KEY_UP)) tryMove(0,-1);
-    if (IsKeyPressed(KEY_DOWN)) tryMove(0,1);
-    if (IsKeyPressed(KEY_R)) loadLevel();
+    if (!s_initialized || s_finished) return;
+
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        int tileSize, offX, offY;
+        GetBoardLayout(&tileSize, &offX, &offY);
+
+        int mx = GetMouseX();
+        int my = GetMouseY();
+
+        int boardSize = tileSize * SIZE;
+        if (mx >= offX && mx < offX + boardSize &&
+            my >= offY && my < offY + boardSize) {
+
+            int col = (mx - offX) / tileSize;
+            int row = (my - offY) / tileSize;
+            if (move_tile(&s_board, row, col)) {
+                s_moveCount++;
+            }
+        }
+    }
+
+    if (is_solved(&s_board)) {
+        s_finished = true;
+    }
+}
+// appelé à chaque frame pour dessiner
+static void PoussePousse_Draw(void) {
+    if (!s_initialized) return;
+
+    // DESSIN DU FOND D'ÉCRAN
+    if (s_bgLoaded) {
+        Rectangle src = { 0, 0, (float)s_bgTexture.width, (float)s_bgTexture.height };
+        Rectangle dst = { 0, 0, (float)GetScreenWidth(), (float)GetScreenHeight() };
+        DrawTexturePro(s_bgTexture, src, dst, (Vector2){0, 0}, 0.0f, WHITE);
+    } else {
+        // si pas d'image de fond, couleur de fond par défaut
+        ClearBackground((Color){ 30, 34, 46, 255 });
+    }
+
+    int tileSize, offX, offY;
+    GetBoardLayout(&tileSize, &offX, &offY);
+
+    DrawText("Puzzle pousse-pousse : clique sur une case voisine du vide",
+             60, 40, 24, RAYWHITE);
+    DrawText("Retour (Backspace) pour quitter", 60, 70, 20, LIGHTGRAY);
+    DrawText(TextFormat("Coups : %d", s_moveCount),
+             60, 100, 20, RAYWHITE);
+    
+    // === Boucle qui dessine les 16 cases ===
+    for (int row = 0; row < SIZE; ++row) {
+        for (int col = 0; col < SIZE; ++col) {
+
+            int x = offX + col * tileSize;
+            int y = offY + row * tileSize;
+            int v = s_board.grid[row][col]; // valeur de 0 à 15
+
+            // --- CASE VIDE ---
+            if (v == 0) {
+                DrawRectangle(x, y, tileSize, tileSize, GRAY);    // fond gris
+                DrawRectangleLines(x, y, tileSize, tileSize, BLACK);
+                continue;
+            }
+
+            // --- CASE AVEC IMAGE (1 → parfaite1.png, 2 → parfaite2.png, ...) ---
+            if (s_tilesLoaded && v >= 1 && v <= TILE_COUNT) {
+
+                // On scale l’image pour remplir une case
+                float scale = (float)tileSize / s_tileTextures[v-1].width;
+
+                DrawTextureEx(
+                    s_tileTextures[v-1],
+                    (Vector2){ x, y },
+                    0.0f,
+                    scale,
+                    WHITE
+                );
+
+                DrawRectangleLines(x, y, tileSize, tileSize, BLACK); // contour
+
+            } else {
+                // Si jamais texture manquante → on affiche le numéro (sécurité)
+                const char *txt = TextFormat("%d", v);
+                int fontSize = tileSize / 2;
+                int tw = MeasureText(txt, fontSize);
+                DrawText(txt, x + (tileSize - tw)/2, y + (tileSize - fontSize)/2, fontSize, BLACK);
+                DrawRectangleLines(x, y, tileSize, tileSize, BLACK);
+            }
+        }
+    }
+
+    // Message de victoire
+    if (s_finished) {
+        DrawText("Bravo ! Puzzle resolu : tu as gagne 1 piece.",
+                 60, GetScreenHeight() - 80, 24, (Color){ 120, 230, 140, 255 });
+    }
 }
 
-static void drawCell(int x, int y, Tile t) {
-    int marginTop = 120;
-    int cell = 48; // 10x10 fits 480px
-    int px = 100 + x*cell;
-    int py = marginTop + y*cell;
-    Color base = (t==T_WALL)?(Color){70,70,90,255}:(t==T_TARGET? (Color){90,140,90,255}: (Color){40,40,50,255});
-    DrawRectangle(px, py, cell-2, cell-2, base);
-    if (t==T_BOX || t==T_BOX_ON_TARGET) DrawRectangle(px+8, py+8, cell-18, cell-18, (Color){200,160,80,255});
+// appelé à la fin du mini-jeu
+static void PoussePousse_Unload(void) {
+    if (s_tilesLoaded) {
+        for (int i = 0; i < TILE_COUNT; i++) {
+            UnloadTexture(s_tileTextures[i]);
+        }
+        s_tilesLoaded = false;
+    }
+    s_initialized = false;
 }
 
-static void mg_draw(void) {
-    DrawText("Pousse-Pousse 10x10 — Flèches pour bouger, R pour reset, Backspace retour", 20, 20, 18, LIGHTGRAY);
-    for (int y=0;y<gridH;y++) for (int x=0;x<gridW;x++) drawCell(x,y,grid[y][x]);
-    int cell = 48; int px = 100 + playerX*cell; int py = 120 + playerY*cell;
-    DrawCircle(px + cell/2, py + cell/2, 14, (Color){240,200,120,255});
-    if (levelWon) DrawText("Bravo! Niveau réussi.", 100, 640, 28, (Color){255,230,120,255});
+// renvoie true quand le mini-jeu est termine, et indique le nombre de pieces
+static bool PoussePousse_IsCompleted(int *coins) {
+    if (!s_finished) return false;
+    if (coins) *coins = 1;   // récompense : 1 pièce
+    return true;
 }
 
-static void mg_unload(void) {}
-
+// fonction utilisée par main.c pour récupérer les callbacks
 MinigameAPI GetMinigamePoussePousse(void) {
-    MinigameAPI api = { mg_init, mg_update, mg_draw, mg_unload };
+    MinigameAPI api = {0};
+    api.init        = PoussePousse_Init;
+    api.update      = PoussePousse_Update;
+    api.draw        = PoussePousse_Draw;
+    api.unload      = PoussePousse_Unload;
+    api.isCompleted = PoussePousse_IsCompleted;
     return api;
 }
-
-
