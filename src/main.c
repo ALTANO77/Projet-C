@@ -6,8 +6,8 @@
 #include "minigames/minigame.h"
 #include "minigames/pousse_pousse/pousse_pousse.h"
 #include "minigames/traffic/traffic.h"
-#include "minigames/gateau/gateau.h"
 #include "minigames/Cerisesurgateau/cerisesurgateau.h"
+#include "minigames/pendu/pendu.h"
 #include "minigames/boutique/boutique.h"
 
 typedef enum {
@@ -694,10 +694,10 @@ int main(int argc, char **argv) {
                 if (IsKeyPressed(KEY_BACKSPACE)) { g.state = STATE_HUB; g.activeZone = ZONE_NONE; }
                 if (IsKeyPressed(KEY_ENTER)) {
                     // Choix mini‑jeu par zone
-                    // Jardin -> Traffic, Puzzle -> PoussePousse, Bibliothèque -> Gateau, Cuisine -> CeriseSurGateau
+                    // Jardin -> Traffic, Puzzle -> PoussePousse, Bibliothèque -> Pendu, Cuisine -> CeriseSurGateau
                     if (g.state == STATE_ZONE_JARDIN) g.currentMinigame = GetMinigameTraffic();
                     else if (g.state == STATE_ZONE_CHAMBRE) g.currentMinigame = GetMinigamePoussePousse();
-                    else if (g.state == STATE_ZONE_GRENIER) g.currentMinigame = GetMinigameGateau();
+                    else if (g.state == STATE_ZONE_GRENIER) g.currentMinigame = GetMinigamePendu();
                     else g.currentMinigame = GetMinigameCeriseSurGateau(); // cuisine
                     if (g.currentMinigame.init) g.currentMinigame.init();
                     g.state = STATE_MINIJEU;
