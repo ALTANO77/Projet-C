@@ -20,8 +20,8 @@ typedef struct {
     Color color;
 } DecoRect;
 
-#define MAX_WALL_RECTS 6
-#define MAX_COUNTER_RECTS 12
+#define MAX_WALL_RECTS 20
+#define MAX_COUNTER_RECTS 20
 
 static Rectangle kitchenArea = {0};
 static float kitchenTile = 80.0f;
@@ -156,6 +156,12 @@ static bool backgroundLoaded = false;
 static Sound alarmSound = {0};
 static bool alarmSoundLoaded = false;
 
+static Texture2D textureRice = {0};
+static Texture2D texturePasta = {0};
+static Texture2D textureShrimp = {0};
+static Texture2D textureBeef = {0};
+static bool texturesLoaded = false;
+
 static int cleanPlateStock = 5;
 static int cleanPotStock = 6;
 static int ordersCompleted = 0;
@@ -171,6 +177,14 @@ static float alarmFlash = 0.0f;
 static float shakeTimer = 0.0f;
 
 static int extinguisherIndex = -1;
+
+// Editor mode
+static bool editorMode = false;
+static int selectedStandIndex = -1;
+static int selectedWallIndex = -1;
+static int selectedCounterIndex = -1;
+static Vector2 dragOffset = {0, 0};
+static const char *KITCHEN_LAYOUT_FILE = "config/kitchen_layout.ini";
 
 /* ---------- Helpers ---------- */
 
@@ -214,8 +228,8 @@ static void addCounterRect(Rectangle rect, Color color) {
 static void setupKitchenArea(void) {
     float sw = (float)GetScreenWidth();
     float sh = (float)GetScreenHeight();
-    const float targetW = 980.0f;
-    const float targetH = 620.0f;
+    const float targetW = 1400.0f;  // Agrandi de 980 à 1400
+    const float targetH = 900.0f;   // Agrandi de 620 à 900
     kitchenArea.width = fminf(targetW, sw - 100.0f);
     kitchenArea.height = fminf(targetH, sh - 120.0f);
     if (kitchenArea.width < 720.0f) kitchenArea.width = 720.0f;
@@ -291,7 +305,7 @@ static float standBoost(StandType t) {
         case STAND_DEVEINER:
         case STAND_RICE_WASHER:
         case STAND_POT_WASHER: return 30.0f;
-        case STAND_PAN:
+        case STAND_PAN: return 0.0f; // Pas de cuisson sur le stand PAN
         case STAND_STOVE_A:
         case STAND_STOVE_B:
         case STAND_STOVE_C: return 60.0f;
@@ -391,6 +405,17 @@ static int spawnPot(Vector2 pos) {
     if (idx < 0) return -1;
     items[idx].type = ITEM_COOKWARE;
     items[idx].cookware = COOKWARE_POT;
+    items[idx].food = FOOD_NONE;
+    items[idx].foodState = FOOD_STATE_NONE;
+    items[idx].isDirty = false;
+    return idx;
+}
+
+static int spawnPan(Vector2 pos) {
+    int idx = spawnItemDefaults(pos, (Vector2){ 52, 20 });
+    if (idx < 0) return -1;
+    items[idx].type = ITEM_COOKWARE;
+    items[idx].cookware = COOKWARE_PAN;
     items[idx].food = FOOD_NONE;
     items[idx].foodState = FOOD_STATE_NONE;
     items[idx].isDirty = false;
@@ -580,17 +605,26 @@ static bool standAcceptsItem(int standIdx, int itemIdx) {
         case STAND_RICE_WASHER:
             return it->type == ITEM_INGREDIENT && it->food == FOOD_RICE && it->foodState == FOOD_STATE_RAW;
         case STAND_PAN:
-            return it->type == ITEM_INGREDIENT && it->food == FOOD_FISH && it->foodState == FOOD_STATE_PREPPED;
+            // Le stand PAN ne fait que donner une poêle, on ne peut pas y cuire
+            // Accepte seulement une poêle vide pour la stocker temporairement
+            return false; // Ne peut pas placer d'item sur le stand PAN (on récupère juste une poêle avec E)
         case STAND_STOVE_A:
         case STAND_STOVE_B:
         case STAND_STOVE_C:
-            if (it->type != ITEM_COOKWARE || it->cookware != COOKWARE_POT) return false;
+            if (it->type != ITEM_COOKWARE) return false;
             if (it->isDirty) return false;
             if (it->food == FOOD_NONE) return false;
-            if (it->food == FOOD_RICE && (!it->hasWater || it->foodState != FOOD_STATE_WASHED)) return false;
-            if (it->food == FOOD_PASTA && !it->hasWater) return false;
-            if (it->food == FOOD_BEEF && it->foodState != FOOD_STATE_RAW) return false;
-            return true;
+            // Pour les casseroles (POT)
+            if (it->cookware == COOKWARE_POT) {
+                if (it->food == FOOD_RICE && (!it->hasWater || it->foodState != FOOD_STATE_WASHED)) return false;
+                if (it->food == FOOD_PASTA && !it->hasWater) return false;
+                return true;
+            }
+            // Pour les poêles (PAN) avec bœuf
+            if (it->cookware == COOKWARE_PAN) {
+                return it->food == FOOD_BEEF && it->foodState == FOOD_STATE_RAW;
+            }
+            return false;
         case STAND_POT_WASHER:
             return it->type == ITEM_COOKWARE && it->cookware == COOKWARE_POT && it->isDirty;
         case STAND_DELIVERY:
@@ -628,6 +662,8 @@ static bool placeItemOnStand(int standIdx, int itemIdx) {
         case STAND_DEVEINER:
         case STAND_RICE_WASHER:
         case STAND_PAN:
+            // Le stand PAN ne permet pas de placer d'items, seulement de récupérer une poêle
+            return false;
         case STAND_STOVE_A:
         case STAND_STOVE_B:
         case STAND_STOVE_C:
@@ -657,27 +693,71 @@ static void resetPlayer(void) {
 }
 
 static Rectangle kitchenBounds(void) {
+    // Exclure les murs pour les collisions
+    float wallThickness = 28.0f;
     return (Rectangle){
-        kitchenArea.x + 20.0f,
-        kitchenArea.y + 20.0f,
-        kitchenArea.width - 40.0f,
-        kitchenArea.height - 40.0f
+        kitchenArea.x + wallThickness,
+        kitchenArea.y + wallThickness,
+        kitchenArea.width - wallThickness * 2.0f,
+        kitchenArea.height - wallThickness * 2.0f
     };
 }
 
+static bool isPointInWall(Vector2 point) {
+    for (int i = 0; i < wallRectCount; ++i) {
+        if (CheckCollisionPointRec(point, wallRects[i].rect)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static Rectangle getWallRect(int index) {
+    if (index >= 0 && index < wallRectCount) {
+        return wallRects[index].rect;
+    }
+    return (Rectangle){0, 0, 0, 0};
+}
+
 static void updatePlayerMovement(float dt) {
+    if (editorMode) return; // Pas de mouvement du joueur en mode éditeur
+    
     Vector2 dir = { 0 };
     if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) dir.x -= 1.0f;
     if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) dir.x += 1.0f;
     if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) dir.y -= 1.0f;
     if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) dir.y += 1.0f;
     if (Vector2Length(dir) > 0.0f) dir = Vector2Normalize(dir);
-    player.pos = Vector2Add(player.pos, Vector2Scale(dir, player.speed * dt));
-    Rectangle bounds = kitchenBounds();
-    if (player.pos.x < bounds.x) player.pos.x = bounds.x;
-    if (player.pos.y < bounds.y) player.pos.y = bounds.y;
-    if (player.pos.x > bounds.x + bounds.width) player.pos.x = bounds.x + bounds.width;
-    if (player.pos.y > bounds.y + bounds.height) player.pos.y = bounds.y + bounds.height;
+    
+    Vector2 newPos = Vector2Add(player.pos, Vector2Scale(dir, player.speed * dt));
+    
+    // Vérifier les collisions avec les murs et les comptoirs
+    Rectangle playerRect = { newPos.x - 16, newPos.y - 16, 32, 32 };
+    bool canMove = true;
+    for (int i = 0; i < wallRectCount; ++i) {
+        if (CheckCollisionRecs(playerRect, wallRects[i].rect)) {
+            canMove = false;
+            break;
+        }
+    }
+    if (canMove) {
+        for (int i = 0; i < counterRectCount; ++i) {
+            if (CheckCollisionRecs(playerRect, counterRects[i].rect)) {
+                canMove = false;
+                break;
+            }
+        }
+    }
+    
+    if (canMove) {
+        player.pos = newPos;
+        Rectangle bounds = kitchenBounds();
+        if (player.pos.x < bounds.x) player.pos.x = bounds.x;
+        if (player.pos.y < bounds.y) player.pos.y = bounds.y;
+        if (player.pos.x > bounds.x + bounds.width) player.pos.x = bounds.x + bounds.width;
+        if (player.pos.y > bounds.y + bounds.height) player.pos.y = bounds.y + bounds.height;
+    }
+    
     if (player.heldItem >= 0) {
         Item *held = &items[player.heldItem];
         held->pos = (Vector2){ player.pos.x - held->size.x * 0.5f, player.pos.y - 50 };
@@ -826,6 +906,40 @@ static bool tryUseExtinguisher(void) {
 }
 
 static void combinePortionsWithPlates(void) {
+    // Transférer le bœuf cuit de la poêle sur le stand vers l'assiette tenue
+    if (player.heldItem >= 0) {
+        Item *held = &items[player.heldItem];
+        if (held->type == ITEM_PLATE && !held->isDirty) {
+            // Chercher une poêle avec bœuf cuit sur un stand de cuisson
+            for (int s = 0; s < STAND_COUNT; ++s) {
+                Stand *st = &stands[s];
+                if (st->type != STAND_STOVE_A && st->type != STAND_STOVE_B && st->type != STAND_STOVE_C) continue;
+                if (st->itemIndex < 0) continue;
+                Item *pan = &items[st->itemIndex];
+                if (!pan->active || pan->type != ITEM_COOKWARE || pan->cookware != COOKWARE_PAN) continue;
+                if (pan->food != FOOD_BEEF || pan->foodState != FOOD_STATE_COOKED) continue;
+                
+                // Vérifier la distance entre le joueur et le stand
+                float dist = Vector2Distance(player.pos, standCenter(st));
+                if (dist <= 120.0f) {
+                    // Transférer le bœuf cuit vers l'assiette
+                    if (held->plateProtein == FOOD_NONE) {
+                        held->plateProtein = FOOD_BEEF;
+                        held->plateProteinState = FOOD_STATE_COOKED;
+                        // Vider la poêle
+                        pan->food = FOOD_NONE;
+                        pan->foodState = FOOD_STATE_NONE;
+                        pan->isDirty = true;
+                        // Retirer la poêle du stand
+                        releaseItemFromStand(s);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    
+    // Combinaison normale portions/ingrédients avec assiettes
     for (int i = 0; i < MAX_ITEMS; ++i) {
         Item *portion = &items[i];
         if (!portion->active || portion->isHeld || portion->inStand) continue;
@@ -862,30 +976,37 @@ static void combineIngredientsWithPots(void) {
         if (!ingredient->active || ingredient->isHeld || ingredient->inStand) continue;
         if (ingredient->type != ITEM_INGREDIENT) continue;
         for (int j = 0; j < MAX_ITEMS; ++j) {
-            Item *pot = &items[j];
-            if (!pot->active || pot->type != ITEM_COOKWARE || pot->cookware != COOKWARE_POT) continue;
-            if (pot->isDirty || pot->food != FOOD_NONE) continue;
-            if (pot->isHeld) continue;
+            Item *cookware = &items[j];
+            if (!cookware->active || cookware->type != ITEM_COOKWARE) continue;
+            if (cookware->isDirty || cookware->food != FOOD_NONE) continue;
+            if (cookware->isHeld) continue;
             Rectangle ri = itemRect(ingredient);
-            Rectangle rpot = itemRect(pot);
-            if (!CheckCollisionRecs(ri, rpot)) continue;
-            if (ingredient->food == FOOD_RICE && ingredient->foodState == FOOD_STATE_WASHED) {
-                pot->food = FOOD_RICE;
-                pot->foodState = FOOD_STATE_WASHED;
-                destroyItem(i);
-                break;
+            Rectangle rcw = itemRect(cookware);
+            if (!CheckCollisionRecs(ri, rcw)) continue;
+            
+            // Pour les casseroles (POT)
+            if (cookware->cookware == COOKWARE_POT) {
+                if (ingredient->food == FOOD_RICE && ingredient->foodState == FOOD_STATE_WASHED) {
+                    cookware->food = FOOD_RICE;
+                    cookware->foodState = FOOD_STATE_WASHED;
+                    destroyItem(i);
+                    break;
+                }
+                if (ingredient->food == FOOD_PASTA) {
+                    cookware->food = FOOD_PASTA;
+                    cookware->foodState = FOOD_STATE_RAW;
+                    destroyItem(i);
+                    break;
+                }
             }
-            if (ingredient->food == FOOD_PASTA) {
-                pot->food = FOOD_PASTA;
-                pot->foodState = FOOD_STATE_RAW;
-                destroyItem(i);
-                break;
-            }
-            if (ingredient->food == FOOD_BEEF && ingredient->foodState == FOOD_STATE_RAW) {
-                pot->food = FOOD_BEEF;
-                pot->foodState = FOOD_STATE_RAW;
-                destroyItem(i);
-                break;
+            // Pour les poêles (PAN) - seulement bœuf
+            if (cookware->cookware == COOKWARE_PAN) {
+                if (ingredient->food == FOOD_BEEF && ingredient->foodState == FOOD_STATE_RAW) {
+                    cookware->food = FOOD_BEEF;
+                    cookware->foodState = FOOD_STATE_RAW;
+                    destroyItem(i);
+                    break;
+                }
             }
         }
     }
@@ -896,25 +1017,34 @@ static bool tryLoadHeldIngredientIntoPot(void) {
     Item *held = &items[player.heldItem];
     if (!held->active || held->type != ITEM_INGREDIENT) return false;
     for (int i = 0; i < MAX_ITEMS; ++i) {
-        Item *pot = &items[i];
-        if (!pot->active || pot->type != ITEM_COOKWARE || pot->cookware != COOKWARE_POT) continue;
-        if (pot->isDirty || pot->food != FOOD_NONE) continue;
-        float dist = Vector2Distance(itemCenter(held), itemCenter(pot));
+        Item *cookware = &items[i];
+        if (!cookware->active || cookware->type != ITEM_COOKWARE) continue;
+        if (cookware->isDirty || cookware->food != FOOD_NONE) continue;
+        float dist = Vector2Distance(itemCenter(held), itemCenter(cookware));
         if (dist > 90.0f) continue;
         bool accepted = false;
-        if (held->food == FOOD_RICE && held->foodState == FOOD_STATE_WASHED && pot->hasWater) {
-            pot->food = FOOD_RICE;
-            pot->foodState = FOOD_STATE_WASHED;
-            accepted = true;
-        } else if (held->food == FOOD_PASTA && pot->hasWater) {
-            pot->food = FOOD_PASTA;
-            pot->foodState = FOOD_STATE_RAW;
-            accepted = true;
-        } else if (held->food == FOOD_BEEF && held->foodState == FOOD_STATE_RAW) {
-            pot->food = FOOD_BEEF;
-            pot->foodState = FOOD_STATE_RAW;
-            accepted = true;
+        
+        // Pour les casseroles (POT)
+        if (cookware->cookware == COOKWARE_POT) {
+            if (held->food == FOOD_RICE && held->foodState == FOOD_STATE_WASHED && cookware->hasWater) {
+                cookware->food = FOOD_RICE;
+                cookware->foodState = FOOD_STATE_WASHED;
+                accepted = true;
+            } else if (held->food == FOOD_PASTA && cookware->hasWater) {
+                cookware->food = FOOD_PASTA;
+                cookware->foodState = FOOD_STATE_RAW;
+                accepted = true;
+            }
         }
+        // Pour les poêles (PAN) - seulement bœuf
+        else if (cookware->cookware == COOKWARE_PAN) {
+            if (held->food == FOOD_BEEF && held->foodState == FOOD_STATE_RAW) {
+                cookware->food = FOOD_BEEF;
+                cookware->foodState = FOOD_STATE_RAW;
+                accepted = true;
+            }
+        }
+        
         if (accepted) {
             destroyItem(player.heldItem);
             player.heldItem = -1;
@@ -950,6 +1080,12 @@ static void handleInteraction(void) {
             }
             if (t == STAND_PLATE_CABINET) { givePlate(); return; }
             if (t == STAND_POT_CABINET) { givePot(); return; }
+            if (t == STAND_PAN && player.heldItem < 0) {
+                // Donner une poêle vide depuis le stand
+                int panIdx = spawnPan((Vector2){ player.pos.x - 26, player.pos.y - 40 });
+                if (panIdx >= 0) takeItem(panIdx);
+                return;
+            }
             if (t == STAND_EXTINGUISHER) {
                 ensureExtinguisher();
                 int pickup = extinguisherIndex;
@@ -1030,10 +1166,15 @@ static void updateStands(float dt) {
             case STAND_STOVE_B:
             case STAND_STOVE_C:
                 it->processTimer += dt;
-                if (!it->onFire && it->processTimer >= st->duration && it->foodState != FOOD_STATE_COOKED) {
+                // Temps de cuisson spécial pour bœuf dans poêle : 30 secondes
+                float cookTime = st->duration;
+                if (it->type == ITEM_COOKWARE && it->cookware == COOKWARE_PAN && it->food == FOOD_BEEF) {
+                    cookTime = 30.0f;
+                }
+                if (!it->onFire && it->processTimer >= cookTime && it->foodState != FOOD_STATE_COOKED) {
                     it->foodState = FOOD_STATE_COOKED;
                 }
-                if (!it->onFire && it->processTimer >= st->duration + 0.5f) {
+                if (!it->onFire && it->processTimer >= cookTime + 0.5f) {
                     triggerFire(i, st->itemIndex);
                 }
                 if (it->onFire) {
@@ -1095,6 +1236,235 @@ static void updateAlarmFx(float dt) {
     }
 }
 
+/* ---------- Editor Mode ---------- */
+
+static void saveKitchenLayout(void) {
+    FILE *f = fopen(KITCHEN_LAYOUT_FILE, "w");
+    if (!f) return;
+    
+    fprintf(f, "# Kitchen Layout Configuration\n");
+    fprintf(f, "# Format: stand_<index>=x,y,width,height\n");
+    fprintf(f, "# Format: wall_<index>=x,y,width,height\n");
+    fprintf(f, "# Format: kitchen_area=x,y,width,height\n\n");
+    
+    fprintf(f, "kitchen_area=%.2f,%.2f,%.2f,%.2f\n", 
+            kitchenArea.x, kitchenArea.y, kitchenArea.width, kitchenArea.height);
+    
+    for (int i = 0; i < STAND_COUNT; ++i) {
+        fprintf(f, "stand_%d=%.2f,%.2f,%.2f,%.2f\n",
+                i, stands[i].area.x, stands[i].area.y, stands[i].area.width, stands[i].area.height);
+    }
+    
+    for (int i = 0; i < wallRectCount; ++i) {
+        fprintf(f, "wall_%d=%.2f,%.2f,%.2f,%.2f\n",
+                i, wallRects[i].rect.x, wallRects[i].rect.y, 
+                wallRects[i].rect.width, wallRects[i].rect.height);
+    }
+    
+    fprintf(f, "\n# Counters\n");
+    for (int i = 0; i < counterRectCount; ++i) {
+        fprintf(f, "counter_%d=%.2f,%.2f,%.2f,%.2f\n",
+                i, counterRects[i].rect.x, counterRects[i].rect.y,
+                counterRects[i].rect.width, counterRects[i].rect.height);
+    }
+    
+    fclose(f);
+}
+
+static void loadKitchenLayout(void) {
+    FILE *f = fopen(KITCHEN_LAYOUT_FILE, "r");
+    if (!f) return;
+    
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+        if (line[0] == '#' || line[0] == '\n') continue;
+        
+        if (strncmp(line, "kitchen_area=", 13) == 0) {
+            float x, y, w, h;
+            if (sscanf(line + 13, "%f,%f,%f,%f", &x, &y, &w, &h) == 4) {
+                kitchenArea.x = x;
+                kitchenArea.y = y;
+                kitchenArea.width = w;
+                kitchenArea.height = h;
+            }
+        } else if (strncmp(line, "stand_", 6) == 0) {
+            int idx;
+            float x, y, w, h;
+            if (sscanf(line, "stand_%d=%f,%f,%f,%f", &idx, &x, &y, &w, &h) == 5) {
+                if (idx >= 0 && idx < STAND_COUNT) {
+                    stands[idx].area.x = x;
+                    stands[idx].area.y = y;
+                    stands[idx].area.width = w;
+                    stands[idx].area.height = h;
+                }
+            }
+        } else if (strncmp(line, "wall_", 5) == 0) {
+            int idx;
+            float x, y, w, h;
+            if (sscanf(line, "wall_%d=%f,%f,%f,%f", &idx, &x, &y, &w, &h) == 5) {
+                if (idx >= 0 && idx < MAX_WALL_RECTS) {
+                    if (idx >= wallRectCount) wallRectCount = idx + 1;
+                    wallRects[idx].rect.x = x;
+                    wallRects[idx].rect.y = y;
+                    wallRects[idx].rect.width = w;
+                    wallRects[idx].rect.height = h;
+                }
+            }
+        } else if (strncmp(line, "counter_", 8) == 0) {
+            int idx;
+            float x, y, w, h;
+            if (sscanf(line, "counter_%d=%f,%f,%f,%f", &idx, &x, &y, &w, &h) == 5) {
+                if (idx >= 0 && idx < MAX_COUNTER_RECTS) {
+                    if (idx >= counterRectCount) counterRectCount = idx + 1;
+                    counterRects[idx].rect.x = x;
+                    counterRects[idx].rect.y = y;
+                    counterRects[idx].rect.width = w;
+                    counterRects[idx].rect.height = h;
+                }
+            }
+        }
+    }
+    
+    fclose(f);
+}
+
+static void handleEditorMode(void) {
+    static bool f2WasPressed = false;
+    bool ctrlDown = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+    bool f2Pressed = IsKeyPressed(KEY_F2);
+    
+    if (ctrlDown && f2Pressed && !f2WasPressed) {
+        f2WasPressed = true;
+        editorMode = !editorMode;
+        selectedStandIndex = -1;
+        selectedWallIndex = -1;
+        selectedCounterIndex = -1;
+        if (editorMode) {
+            loadKitchenLayout();
+        } else {
+            saveKitchenLayout();
+        }
+    }
+    if (!f2Pressed) {
+        f2WasPressed = false;
+    }
+    
+    if (!editorMode) return;
+    
+    Vector2 mousePos = GetMousePosition();
+    
+    // Sélection et déplacement des stands, murs et comptoirs
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        selectedStandIndex = -1;
+        selectedWallIndex = -1;
+        selectedCounterIndex = -1;
+        for (int i = 0; i < STAND_COUNT; ++i) {
+            if (CheckCollisionPointRec(mousePos, stands[i].area)) {
+                selectedStandIndex = i;
+                dragOffset = (Vector2){ 
+                    mousePos.x - stands[i].area.x,
+                    mousePos.y - stands[i].area.y
+                };
+                break;
+            }
+        }
+        if (selectedStandIndex < 0) {
+            for (int i = 0; i < wallRectCount; ++i) {
+                if (CheckCollisionPointRec(mousePos, wallRects[i].rect)) {
+                    selectedWallIndex = i;
+                    dragOffset = (Vector2){
+                        mousePos.x - wallRects[i].rect.x,
+                        mousePos.y - wallRects[i].rect.y
+                    };
+                    break;
+                }
+            }
+        }
+        if (selectedStandIndex < 0 && selectedWallIndex < 0) {
+            for (int i = 0; i < counterRectCount; ++i) {
+                if (CheckCollisionPointRec(mousePos, counterRects[i].rect)) {
+                    selectedCounterIndex = i;
+                    dragOffset = (Vector2){
+                        mousePos.x - counterRects[i].rect.x,
+                        mousePos.y - counterRects[i].rect.y
+                    };
+                    break;
+                }
+            }
+        }
+    }
+    
+    // Duplication avec Ctrl+D
+    static bool dWasPressed = false;
+    bool dPressed = IsKeyPressed(KEY_D);
+    if (ctrlDown && dPressed && !dWasPressed) {
+        dWasPressed = true;
+        if (selectedStandIndex >= 0) {
+            // Dupliquer le stand sélectionné
+            // Note: On ne peut pas dépasser STAND_COUNT, donc on ne duplique pas si on est à la limite
+            // Pour simplifier, on duplique juste la position dans un nouveau stand si possible
+            // (Cette fonctionnalité nécessiterait un système de stands dynamiques)
+        } else if (selectedWallIndex >= 0 && wallRectCount < MAX_WALL_RECTS) {
+            // Dupliquer le mur
+            DecoRect newWall = wallRects[selectedWallIndex];
+            newWall.rect.x += 50.0f; // Décaler légèrement
+            newWall.rect.y += 50.0f;
+            wallRects[wallRectCount++] = newWall;
+            selectedWallIndex = wallRectCount - 1;
+            saveKitchenLayout();
+        } else if (selectedCounterIndex >= 0 && counterRectCount < MAX_COUNTER_RECTS) {
+            // Dupliquer le comptoir
+            DecoRect newCounter = counterRects[selectedCounterIndex];
+            newCounter.rect.x += 50.0f;
+            newCounter.rect.y += 50.0f;
+            counterRects[counterRectCount++] = newCounter;
+            selectedCounterIndex = counterRectCount - 1;
+            saveKitchenLayout();
+        }
+    }
+    if (!dPressed) {
+        dWasPressed = false;
+    }
+    
+    // Suppression avec Delete
+    if (IsKeyPressed(KEY_DELETE)) {
+        if (selectedWallIndex >= 0 && wallRectCount > 0) {
+            // Supprimer le mur (décaler les autres)
+            for (int i = selectedWallIndex; i < wallRectCount - 1; ++i) {
+                wallRects[i] = wallRects[i + 1];
+            }
+            wallRectCount--;
+            selectedWallIndex = -1;
+            saveKitchenLayout();
+        } else if (selectedCounterIndex >= 0 && counterRectCount > 0) {
+            // Supprimer le comptoir
+            for (int i = selectedCounterIndex; i < counterRectCount - 1; ++i) {
+                counterRects[i] = counterRects[i + 1];
+            }
+            counterRectCount--;
+            selectedCounterIndex = -1;
+            saveKitchenLayout();
+        }
+    }
+    
+    if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+        if (selectedStandIndex >= 0) {
+            stands[selectedStandIndex].area.x = mousePos.x - dragOffset.x;
+            stands[selectedStandIndex].area.y = mousePos.y - dragOffset.y;
+        } else if (selectedWallIndex >= 0) {
+            wallRects[selectedWallIndex].rect.x = mousePos.x - dragOffset.x;
+            wallRects[selectedWallIndex].rect.y = mousePos.y - dragOffset.y;
+        } else if (selectedCounterIndex >= 0) {
+            counterRects[selectedCounterIndex].rect.x = mousePos.x - dragOffset.x;
+            counterRects[selectedCounterIndex].rect.y = mousePos.y - dragOffset.y;
+        }
+    }
+    
+    if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+        saveKitchenLayout();
+    }
+}
+
 /* ---------- Lifecycle ---------- */
 
 static void mg_init(void) {
@@ -1112,6 +1482,7 @@ static void mg_init(void) {
     shakeTimer = 0.0f;
     extinguisherIndex = -1;
     initLayout();
+    loadKitchenLayout(); // Charger la configuration sauvegardée après initialisation
     resetOrders();
     resetPlayer();
     ensureExtinguisher();
@@ -1134,10 +1505,49 @@ static void mg_init(void) {
     } else {
         backgroundLoaded = false;
     }
+
+    // Load ingredient textures
+    if (FileExists("assets/youre_cooked/ingredients/riz.png")) {
+        Image img = LoadImage("assets/youre_cooked/ingredients/riz.png");
+        if (img.data) {
+            textureRice = LoadTextureFromImage(img);
+            UnloadImage(img);
+        }
+    }
+    if (FileExists("assets/youre_cooked/ingredients/pates.png")) {
+        Image img = LoadImage("assets/youre_cooked/ingredients/pates.png");
+        if (img.data) {
+            texturePasta = LoadTextureFromImage(img);
+            UnloadImage(img);
+        }
+    }
+    if (FileExists("assets/youre_cooked/ingredients/crevetes.png")) {
+        Image img = LoadImage("assets/youre_cooked/ingredients/crevetes.png");
+        if (img.data) {
+            textureShrimp = LoadTextureFromImage(img);
+            UnloadImage(img);
+        }
+    }
+    if (FileExists("assets/youre_cooked/ingredients/Boeuf.png")) {
+        Image img = LoadImage("assets/youre_cooked/ingredients/Boeuf.png");
+        if (img.data) {
+            textureBeef = LoadTextureFromImage(img);
+            UnloadImage(img);
+        }
+    }
+    texturesLoaded = (textureRice.id != 0 && texturePasta.id != 0 && 
+                      textureShrimp.id != 0 && textureBeef.id != 0);
 }
 
 static void mg_update(float dt) {
+    handleEditorMode();
+    
     if (levelComplete || levelFailed) return;
+    if (editorMode) {
+        refreshHighlights();
+        return;
+    }
+    
     levelTimer -= dt;
     if (levelTimer <= 0.0f) {
         levelFailed = true;
@@ -1186,41 +1596,84 @@ static void drawWallsAndCounters(Vector2 offset) {
         Rectangle r = wallRects[i].rect;
         r.x += offset.x; r.y += offset.y;
         DrawRectangleRec(r, wallRects[i].color);
+        if (editorMode) {
+            if (selectedWallIndex == i) {
+                DrawRectangleLinesEx(r, 3, YELLOW);
+            } else {
+                DrawRectangleLinesEx(r, 1, (Color){255, 255, 255, 100});
+            }
+        }
     }
     for (int i = 0; i < counterRectCount; ++i) {
         Rectangle r = counterRects[i].rect;
         r.x += offset.x; r.y += offset.y;
         DrawRectangleRec(r, counterRects[i].color);
-        DrawRectangleLines((int)r.x, (int)r.y, (int)r.width, (int)r.height, (Color){ 15, 30, 40, 120 });
+        if (editorMode) {
+            if (selectedCounterIndex == i) {
+                DrawRectangleLinesEx(r, 3, YELLOW);
+            } else {
+                DrawRectangleLinesEx(r, 1, (Color){255, 255, 255, 100});
+            }
+        } else {
+            DrawRectangleLines((int)r.x, (int)r.y, (int)r.width, (int)r.height, (Color){ 15, 30, 40, 120 });
+        }
     }
 }
 
 static void drawFoodIcon(FoodType food, Vector2 pos, float scale) {
-    Color c = foodColor(food);
     float size = 20.0f * scale;
-    switch (food) {
-        case FOOD_RICE:
-            DrawRectangleRounded((Rectangle){ pos.x - size, pos.y - size * 0.4f, size * 2, size * 0.8f }, 0.4f, 6, c);
-            break;
-        case FOOD_PASTA:
-            DrawEllipse(pos.x, pos.y, size * 1.2f, size * 0.6f, c);
-            break;
-        case FOOD_FISH:
-            DrawEllipse(pos.x, pos.y, size, size * 0.6f, c);
-            DrawTriangle((Vector2){ pos.x + size, pos.y }, (Vector2){ pos.x + size * 1.4f, pos.y - size * 0.4f },
-                         (Vector2){ pos.x + size * 1.4f, pos.y + size * 0.4f }, c);
-            break;
-        case FOOD_SHRIMP:
-            DrawCircleGradient((int)pos.x, (int)pos.y, size, c, (Color){255, 120, 120, 255});
-            DrawCircleLines((int)pos.x, (int)pos.y, size, (Color){255, 200, 200, 255});
-            break;
-        case FOOD_BEEF:
-            DrawRectangleRounded((Rectangle){ pos.x - size * 0.8f, pos.y - size * 0.6f,
-                                              size * 1.6f, size * 1.2f }, 0.4f, 8, c);
-            break;
-        default:
-            DrawCircleLines((int)pos.x, (int)pos.y, size * 0.5f, (Color){ 200, 200, 200, 255 });
-            break;
+    Rectangle destRect = { pos.x - size, pos.y - size, size * 2, size * 2 };
+    Texture2D *tex = NULL;
+    
+    if (texturesLoaded) {
+        switch (food) {
+            case FOOD_RICE:
+                tex = &textureRice;
+                break;
+            case FOOD_PASTA:
+                tex = &texturePasta;
+                break;
+            case FOOD_SHRIMP:
+                tex = &textureShrimp;
+                break;
+            case FOOD_BEEF:
+                tex = &textureBeef;
+                break;
+            default:
+                break;
+        }
+    }
+    
+    if (tex && tex->id != 0) {
+        Rectangle sourceRect = { 0, 0, (float)tex->width, (float)tex->height };
+        DrawTexturePro(*tex, sourceRect, destRect, (Vector2){0, 0}, 0.0f, WHITE);
+    } else {
+        // Fallback to original geometric shapes if textures not loaded
+        Color c = foodColor(food);
+        switch (food) {
+            case FOOD_RICE:
+                DrawRectangleRounded((Rectangle){ pos.x - size, pos.y - size * 0.4f, size * 2, size * 0.8f }, 0.4f, 6, c);
+                break;
+            case FOOD_PASTA:
+                DrawEllipse(pos.x, pos.y, size * 1.2f, size * 0.6f, c);
+                break;
+            case FOOD_FISH:
+                DrawEllipse(pos.x, pos.y, size, size * 0.6f, c);
+                DrawTriangle((Vector2){ pos.x + size, pos.y }, (Vector2){ pos.x + size * 1.4f, pos.y - size * 0.4f },
+                             (Vector2){ pos.x + size * 1.4f, pos.y + size * 0.4f }, c);
+                break;
+            case FOOD_SHRIMP:
+                DrawCircleGradient((int)pos.x, (int)pos.y, size, c, (Color){255, 120, 120, 255});
+                DrawCircleLines((int)pos.x, (int)pos.y, size, (Color){255, 200, 200, 255});
+                break;
+            case FOOD_BEEF:
+                DrawRectangleRounded((Rectangle){ pos.x - size * 0.8f, pos.y - size * 0.6f,
+                                                  size * 1.6f, size * 1.2f }, 0.4f, 8, c);
+                break;
+            default:
+                DrawCircleLines((int)pos.x, (int)pos.y, size * 0.5f, (Color){ 200, 200, 200, 255 });
+                break;
+        }
     }
 }
 
@@ -1329,7 +1782,13 @@ static void drawItems(Vector2 offset) {
         r.x += offset.x;
         r.y += offset.y;
         Color c = (it->type == ITEM_PLATE) ? WHITE : foodColor(it->food);
-        if (it->type == ITEM_COOKWARE) c = (Color){ 90, 90, 90, 255 };
+        if (it->type == ITEM_COOKWARE) {
+            if (it->cookware == COOKWARE_PAN) {
+                c = (Color){ 70, 70, 70, 255 }; // Poêle plus foncée
+            } else {
+                c = (Color){ 90, 90, 90, 255 }; // Casserole
+            }
+        }
         if (it->type == ITEM_EXTINGUISHER) c = (Color){ 200, 40, 40, 255 };
         if (it->type == ITEM_PLATE) {
             DrawRectangleRounded(r, 0.5f, 6, c);
@@ -1338,6 +1797,72 @@ static void drawItems(Vector2 offset) {
             }
             if (it->plateProtein != FOOD_NONE) {
                 DrawText(TextFormat("+ %s", foodName(it->plateProtein)), (int)r.x + 4, (int)r.y + 4, 14, ORANGE);
+            }
+        } else if (it->type == ITEM_COOKWARE && it->cookware == COOKWARE_PAN && it->food != FOOD_NONE) {
+            // Afficher le contenu de la poêle (bœuf)
+            Texture2D *tex = NULL;
+            if (it->food == FOOD_BEEF && textureBeef.id != 0) {
+                tex = &textureBeef;
+            }
+            if (tex && tex->id != 0) {
+                Rectangle sourceRect = { 0, 0, (float)tex->width, (float)tex->height };
+                // Dessiner d'abord la poêle
+                DrawRectangleRounded(r, 0.3f, 6, c);
+                // Puis le contenu légèrement plus petit
+                Rectangle contentRect = { r.x + 2, r.y + 2, r.width - 4, r.height - 4 };
+                DrawTexturePro(*tex, sourceRect, contentRect, (Vector2){0, 0}, 0.0f, WHITE);
+            } else {
+                DrawRectangleRounded(r, 0.3f, 6, c);
+            }
+        } else if (it->type == ITEM_INGREDIENT) {
+            // Draw ingredient texture if available
+            Texture2D *tex = NULL;
+            switch (it->food) {
+                case FOOD_RICE:
+                    if (textureRice.id != 0) tex = &textureRice;
+                    break;
+                case FOOD_PASTA:
+                    if (texturePasta.id != 0) tex = &texturePasta;
+                    break;
+                case FOOD_SHRIMP:
+                    if (textureShrimp.id != 0) tex = &textureShrimp;
+                    break;
+                case FOOD_BEEF:
+                    if (textureBeef.id != 0) tex = &textureBeef;
+                    break;
+                default:
+                    break;
+            }
+            if (tex && tex->id != 0) {
+                Rectangle sourceRect = { 0, 0, (float)tex->width, (float)tex->height };
+                DrawTexturePro(*tex, sourceRect, r, (Vector2){0, 0}, 0.0f, WHITE);
+            } else {
+                DrawRectangleRounded(r, 0.3f, 6, c);
+            }
+        } else if (it->type == ITEM_PORTION) {
+            // Draw portion texture if available
+            Texture2D *tex = NULL;
+            switch (it->food) {
+                case FOOD_RICE:
+                    if (textureRice.id != 0) tex = &textureRice;
+                    break;
+                case FOOD_PASTA:
+                    if (texturePasta.id != 0) tex = &texturePasta;
+                    break;
+                case FOOD_SHRIMP:
+                    if (textureShrimp.id != 0) tex = &textureShrimp;
+                    break;
+                case FOOD_BEEF:
+                    if (textureBeef.id != 0) tex = &textureBeef;
+                    break;
+                default:
+                    break;
+            }
+            if (tex && tex->id != 0) {
+                Rectangle sourceRect = { 0, 0, (float)tex->width, (float)tex->height };
+                DrawTexturePro(*tex, sourceRect, r, (Vector2){0, 0}, 0.0f, WHITE);
+            } else {
+                DrawRectangleRounded(r, 0.3f, 6, c);
             }
         } else {
             DrawRectangleRounded(r, 0.3f, 6, c);
@@ -1357,19 +1882,41 @@ static void drawStands(Vector2 offset) {
         Color col = st->baseColor;
         DrawRectangleRounded(r, 0.15f, 6, col);
         DrawText(st->label, (int)r.x + 6, (int)r.y + 6, 16, RAYWHITE);
-        drawStandIcon(st, r);
-        if (st->highlight) DrawRectangleLinesEx(r, 2, YELLOW);
-        if (st->itemIndex >= 0 && st->duration > 0) {
+        if (!editorMode) {
+            drawStandIcon(st, r);
+        }
+        if (editorMode && selectedStandIndex == i) {
+            DrawRectangleLinesEx(r, 3, YELLOW);
+        } else if (st->highlight && !editorMode) {
+            DrawRectangleLinesEx(r, 2, YELLOW);
+        }
+        if (st->itemIndex >= 0 && st->duration > 0 && !editorMode) {
             float pct = Clamp(stands[i].timer / st->duration, 0.0f, 1.0f);
             DrawRectangle((int)r.x + 6, (int)(r.y + r.height - 12), (int)((r.width - 12) * pct), 6, GREEN);
         }
-        if (st->onFire) {
+        if (st->onFire && !editorMode) {
             DrawRectangleLinesEx(r, 3, RED);
         }
     }
 }
 
 static void drawHUD(Vector2 offset) {
+    if (editorMode) {
+        DrawRectangle(0, 0, GetScreenWidth(), 60, (Color){ 40, 40, 60, 200 });
+        DrawText("MODE EDITEUR ACTIF - Ctrl+F2 pour quitter", 20, 20, 24, YELLOW);
+        DrawText("Clic gauche: selectionner/deplacer | Ctrl+D: dupliquer | Delete: supprimer", 20, 50, 18, LIGHTGRAY);
+        if (selectedStandIndex >= 0) {
+            DrawText(TextFormat("Stand selectionne: %d", selectedStandIndex), 500, 20, 20, GREEN);
+        }
+        if (selectedWallIndex >= 0) {
+            DrawText(TextFormat("Mur selectionne: %d", selectedWallIndex), 500, 20, 20, GREEN);
+        }
+        if (selectedCounterIndex >= 0) {
+            DrawText(TextFormat("Comptoir selectionne: %d", selectedCounterIndex), 500, 20, 20, GREEN);
+        }
+        return;
+    }
+    
     int sw = GetScreenWidth();
     Rectangle leftPanel = { 36 + offset.x, GetScreenHeight() - 120 + offset.y, 320, 80 };
     Rectangle rightPanel = { sw - 360 + offset.x, GetScreenHeight() - 120 + offset.y, 320, 80 };
@@ -1380,7 +1927,7 @@ static void drawHUD(Vector2 offset) {
     DrawText(TextFormat("Commandes: %d / %d", ordersCompleted, ORDER_TARGET), rightPanel.x + 16, rightPanel.y + 18, 20, WHITE);
     DrawText(TextFormat("Pieces: %d", coinsEarned), rightPanel.x + 16, rightPanel.y + 44, 20, GOLD);
     DrawText(TextFormat("Temps restant: %.0fs", levelTimer), sw/2 - 90 + (int)offset.x, 20 + (int)offset.y, 24, RAYWHITE);
-    DrawText("E: interagir | Q: drop | Space: verser / eteindre", 40 + (int)offset.x, GetScreenHeight() - 28 + (int)offset.y, 18, LIGHTGRAY);
+    DrawText("E: interagir | Q: drop | Space: verser / eteindre | Ctrl+F2: Editeur", 40 + (int)offset.x, GetScreenHeight() - 28 + (int)offset.y, 18, LIGHTGRAY);
 }
 
 static void mg_draw(void) {
@@ -1430,6 +1977,23 @@ static void mg_unload(void) {
         UnloadSound(alarmSound);
         alarmSoundLoaded = false;
     }
+    if (textureRice.id != 0) {
+        UnloadTexture(textureRice);
+        textureRice = (Texture2D){0};
+    }
+    if (texturePasta.id != 0) {
+        UnloadTexture(texturePasta);
+        texturePasta = (Texture2D){0};
+    }
+    if (textureShrimp.id != 0) {
+        UnloadTexture(textureShrimp);
+        textureShrimp = (Texture2D){0};
+    }
+    if (textureBeef.id != 0) {
+        UnloadTexture(textureBeef);
+        textureBeef = (Texture2D){0};
+    }
+    texturesLoaded = false;
 }
 
 static bool mg_isCompleted(int *coinsOut) {
