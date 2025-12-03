@@ -5,6 +5,10 @@
 #include <string.h>
 #include <math.h>
 
+// Texture de fond de la boutique
+static Texture2D backgroundTexture = {0};
+static bool hasBackground = false;
+
 // Fonction utilitaire pour charger une texture si disponible
 static Texture2D loadTextureIfAvailable(const char *path) {
     Texture2D tex = {0};
@@ -70,21 +74,29 @@ void Boutique_Init(BoutiqueData *data) {
         data->hasOutfit[i] = data->outfits[i].id != 0;
         data->outfitOwned[i] = false; // Aucune tenue achetée au départ
     }
+    
+    // Charger le fond de la boutique
+    backgroundTexture = loadTextureIfAvailable("assets/boutique/fond_boutique.png");
+    hasBackground = (backgroundTexture.id != 0);
 }
 
 // Mise à jour de la boutique (gestion des clics)
 void Boutique_Update(BoutiqueData *data) {
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
         Vector2 mouse = GetMousePosition();
-        float outfitSize = (float)fminf(GetScreenWidth(), GetScreenHeight()) * 0.35f;
-        float spacing = outfitSize * 1.1f;
+        float outfitSize = (float)fminf(GetScreenWidth(), GetScreenHeight()) * 0.25f; // Même taille que dans Draw
+        float spacing = outfitSize * 1.05f; // Même espacement que dans Draw
         float totalWidth = 5 * spacing;
         float startX = (GetScreenWidth() - totalWidth) / 2.0f;
-        float startY = GetScreenHeight() * 0.35f;
+        float startY = GetScreenHeight() * 0.50f; // Remonté encore plus
         
         for (int i = 0; i < 5; ++i) {
+            // Décaler Noël (0) et Aviateur (1) vers la gauche, Vampire (3) et Maillot (4) vers la droite
+            float offsetX = 0.0f;
+            if (i == 0 || i == 1) offsetX = -50.0f; // Vers la gauche
+            else if (i == 3 || i == 4) offsetX = 50.0f; // Vers la droite
             Rectangle outfitRect = {
-                startX + i * spacing,
+                startX + i * spacing + offsetX,
                 startY,
                 outfitSize,
                 outfitSize
@@ -111,29 +123,48 @@ void Boutique_Update(BoutiqueData *data) {
 
 // Affichage de la boutique
 void Boutique_Draw(BoutiqueData *data) {
-    DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), (Color){ 245, 245, 245, 255 });
-    drawCentered("Boutique d'habits", 100, 56, (Color){ 50, 50, 80, 255 });
-    drawCentered("Si tu as assez d'argent tu peux t'acheter une tenue !", 160, 26, (Color){ 90, 90, 90, 255 });
+    // Afficher le fond sans le couper (fit to screen)
+    if (hasBackground) {
+        int sw = GetScreenWidth();
+        int sh = GetScreenHeight();
+        float scaleX = (float)sw / backgroundTexture.width;
+        float scaleY = (float)sh / backgroundTexture.height;
+        // Utiliser le scale le plus petit pour ne pas couper l'image
+        float scale = (scaleX < scaleY) ? scaleX : scaleY;
+        float w = backgroundTexture.width * scale;
+        float h = backgroundTexture.height * scale;
+        float x = (sw - w) / 2.0f;
+        float y = (sh - h) / 2.0f;
+        DrawTextureEx(backgroundTexture, (Vector2){x, y}, 0.0f, scale, WHITE);
+    } else {
+        DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), (Color){ 245, 245, 245, 255 });
+    }
     
     // Afficher le compteur de pièces
     drawCoinCounter(*data->collectibles);
 
     // Afficher les 5 tenues côte à côte
-    float outfitSize = (float)fminf(GetScreenWidth(), GetScreenHeight()) * 0.35f;
-    float spacing = outfitSize * 1.1f;
+    float outfitSize = (float)fminf(GetScreenWidth(), GetScreenHeight()) * 0.25f; // Taille inchangée
+    float spacing = outfitSize * 1.05f; // Espacement inchangé
     float totalWidth = 5 * spacing;
     float startX = (GetScreenWidth() - totalWidth) / 2.0f;
-    float startY = GetScreenHeight() * 0.35f;
+    float startY = GetScreenHeight() * 0.50f; // Remonté encore plus
     Vector2 mouse = GetMousePosition();
     
     for (int i = 0; i < 5; ++i) {
-        // Rendre la tenue de Noël (index 0) un peu plus large
-        float currentWidth = (i == 0) ? outfitSize * 1.15f : outfitSize;
+        // Agrandir toutes les tenues sauf l'aviateur (index 1)
+        float scale = (i == 1) ? 1.0f : 1.6f; // Aviateur garde sa taille, les autres sont 60% plus grandes
+        float currentWidth = (i == 0) ? outfitSize * 1.15f * scale : outfitSize * scale;
+        float currentHeight = outfitSize * scale;
+        // Décaler Noël (0) et Aviateur (1) vers la gauche, Vampire (3) et Maillot (4) vers la droite
+        float offsetX = 0.0f;
+        if (i == 0 || i == 1) offsetX = -50.0f; // Vers la gauche
+        else if (i == 3 || i == 4) offsetX = 50.0f; // Vers la droite
         Rectangle outfitRect = {
-            startX + i * spacing,
+            startX + i * spacing + offsetX,
             startY,
             currentWidth,
-            outfitSize
+            currentHeight
         };
         
         bool canAfford = *data->collectibles >= data->outfitPrices[i];
@@ -152,30 +183,30 @@ void Boutique_Draw(BoutiqueData *data) {
         Color tint = isOwned ? WHITE : (canAfford ? (Color){ 255, 255, 255, 180 } : (Color){ 150, 150, 150, 180 });
         if (data->hasOutfit[i]) {
             Rectangle src = { 0, 0, (float)data->outfits[i].width, (float)data->outfits[i].height };
-            DrawTexturePro(data->outfits[i], src, outfitRect, (Vector2){ 0, 0 }, 0.0f, tint);
+            
+            // Préserver le ratio d'aspect de l'image
+            float imgAspect = (float)data->outfits[i].width / (float)data->outfits[i].height;
+            float rectAspect = currentWidth / currentHeight;
+            
+            Rectangle dstRect = outfitRect;
+            if (imgAspect > rectAspect) {
+                // L'image est plus large, ajuster la hauteur
+                float newHeight = currentWidth / imgAspect;
+                dstRect.height = newHeight;
+                dstRect.y = outfitRect.y + (currentHeight - newHeight) / 2.0f;
+            } else {
+                // L'image est plus haute, ajuster la largeur
+                float newWidth = currentHeight * imgAspect;
+                dstRect.width = newWidth;
+                dstRect.x = outfitRect.x + (currentWidth - newWidth) / 2.0f;
+            }
+            
+            DrawTexturePro(data->outfits[i], src, dstRect, (Vector2){ 0, 0 }, 0.0f, tint);
         } else {
             DrawRectangleRec(outfitRect, (Color){ 100, 100, 100, 255 });
             DrawText("?", (int)(outfitRect.x + outfitRect.width/2 - 10), (int)(outfitRect.y + outfitRect.height/2 - 10), 20, WHITE);
         }
         
-        // Nom de la tenue sous l'image
-        const char *name = data->outfitNames[i];
-        int textWidth = MeasureText(name, 24);
-        DrawText(name, (int)(outfitRect.x + (outfitRect.width - textWidth) / 2), (int)(outfitRect.y + outfitRect.height + 15), 24, (Color){ 40, 40, 40, 255 });
-        
-        // Prix ou "Acheté"
-        float priceY = outfitRect.y + outfitRect.height + 50;
-        if (isOwned) {
-            const char *ownedText = "Acheté";
-            int ownedWidth = MeasureText(ownedText, 22);
-            DrawText(ownedText, (int)(outfitRect.x + (outfitRect.width - ownedWidth) / 2), (int)priceY, 22, (Color){ 50, 200, 50, 255 });
-        } else {
-            char priceText[32];
-            snprintf(priceText, sizeof(priceText), "%d pièces", data->outfitPrices[i]);
-            int priceWidth = MeasureText(priceText, 22);
-            Color priceColor = canAfford ? (Color){ 40, 40, 40, 255 } : (Color){ 200, 50, 50, 255 };
-            DrawText(priceText, (int)(outfitRect.x + (outfitRect.width - priceWidth) / 2), (int)priceY, 22, priceColor);
-        }
     }
 }
 
@@ -185,6 +216,11 @@ void Boutique_Unload(BoutiqueData *data) {
         if (data->hasOutfit[i]) {
             UnloadTexture(data->outfits[i]);
         }
+    }
+    // Décharger le fond
+    if (hasBackground) {
+        UnloadTexture(backgroundTexture);
+        hasBackground = false;
     }
 }
 
