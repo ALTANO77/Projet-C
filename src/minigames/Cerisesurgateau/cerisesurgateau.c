@@ -1,18 +1,22 @@
-// Jeu "Cerise sur Gateau" - version simplifiée
-// - 3 niveaux
+// Jeu "Cerise sur Gateau"
+// - 3 niveaux disponibles (un niveau aléatoire par partie)
 // - modèle affiché 5 s
-// - 30 s de jeu par niveau
+// - 30 s de jeu
 // - drag & drop d'ingrédients depuis le bas
 // - possibilité de re-bouger un ingrédient déjà posé
 // - barquette invisible (juste une ligne d'ingrédients en bas)
 // - mode éditeur simple (Ctrl+F2) pour déplacer le cercle et les positions cibles
+// - le jeu se termine après chaque niveau, rejouer charge un niveau aléatoire différent
 
 #include "cerisesurgateau.h"
+#include "minigame_end_screen.h"
 #include "raylib.h"
 #include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define INGREDIENT_COUNT 5
 #define MAX_LEVELS 3
@@ -36,7 +40,6 @@ typedef enum {
 typedef enum {
     STATE_SHOWING_MODEL,
     STATE_PLAYING,
-    STATE_LEVEL_COMPLETE,
     STATE_GAME_COMPLETE,
     STATE_EDITOR
 } GameState;
@@ -80,6 +83,7 @@ static Ingredient* draggedIngredient = NULL;
 static Vector2 dragOffset = {0};
 
 static float finalScore = 0.0f;
+static EndScreenState s_endScreen = {0};
 
 // "barquette" invisible = simple ligne en bas
 static float traySpacing = 80.0f;
@@ -92,8 +96,6 @@ static bool editorMode = false;
 static int editorSelectedLevel = 0;
 static int editorSelectedIngredient = 0;
 
-// Flag pour savoir si l'utilisateur a cliqué sur le bouton de retour
-static bool returnToSalonClicked = false;
 
 // --------- Helpers ---------
 
@@ -359,7 +361,9 @@ static void mg_init(void) {
     // Charger la configuration sauvegardée (après initLevel pour écraser les valeurs par défaut)
     loadLevelConfig();
 
-    currentLevel = 0;
+    // Sélectionner un niveau aléatoire
+    srand((unsigned int)time(NULL));
+    currentLevel = rand() % MAX_LEVELS;
     gameState = STATE_SHOWING_MODEL;
     modelTimer = 0.0f;
     levelTimer = 0.0f;
@@ -368,7 +372,8 @@ static void mg_init(void) {
     editorMode = false;
     editorSelectedLevel = 0;
     editorSelectedIngredient = 0;
-    returnToSalonClicked = false;
+    s_endScreen.wantsToExit = false;
+    s_endScreen.wantsToReplay = false;
 }
 
 // --------- Mode éditeur (simple) ---------
@@ -462,21 +467,29 @@ static void mg_update(float dt) {
     }
 
     if (gameState == STATE_GAME_COMPLETE) {
-        // Gestion du clic sur le bouton "Retourner dans le salon"
-        Vector2 mouse = GetMousePosition();
-        int sw = GetScreenWidth();
-        int sh = GetScreenHeight();
+        bool won = finalScore >= PASSING_SCORE;
+        UpdateEndScreen(&s_endScreen, won, !won);
         
-        // Position du bouton
-        int buttonX = sw / 2 - 150;
-        int buttonY = sh - 120;
-        int buttonWidth = 300;
-        int buttonHeight = 50;
-        Rectangle buttonRect = {buttonX, buttonY, buttonWidth, buttonHeight};
-        
-        // Vérifier le clic sur le bouton
-        if (CheckCollisionPointRec(mouse, buttonRect) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            returnToSalonClicked = true;
+        if (s_endScreen.wantsToReplay) {
+            // Réinitialiser avec un niveau aléatoire différent
+            int newLevel;
+            do {
+                newLevel = rand() % MAX_LEVELS;
+            } while (newLevel == currentLevel && MAX_LEVELS > 1);
+            currentLevel = newLevel;
+            
+            int sw = GetScreenWidth();
+            int sh = GetScreenHeight();
+            updateTrayPositionsForLevel(&levels[currentLevel], sw, sh);
+            gameState = STATE_SHOWING_MODEL;
+            modelTimer = 0.0f;
+            levelTimer = 0.0f;
+            draggedIngredient = NULL;
+            finalScore = 0.0f;
+            levels[currentLevel].completed = false;
+            levels[currentLevel].score = 0.0f;
+            s_endScreen.wantsToReplay = false;
+            s_endScreen.wantsToExit = false;
         }
         return;
     }
@@ -566,43 +579,80 @@ static void mg_update(float dt) {
             draggedIngredient = NULL;
         }
 
-        // fin du temps -> calcul score
-        if (levelTimer <= 0.0f) {
-            float total = 0.0f;
+        // Bouton "Terminer" à droite
+        int buttonX = sw - 180;
+        int buttonY = sh / 2 - 40;
+        int buttonWidth = 150;
+        int buttonHeight = 80;
+        Rectangle finishButton = {buttonX, buttonY, buttonWidth, buttonHeight};
+        
+        if (CheckCollisionPointRec(mouse, finishButton) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            // Calculer le score immédiatement
+            // Vérifier que tous les ingrédients sont placés
             int placed = 0;
             for (int i = 0; i < level->ingredientCount; ++i) {
-                Ingredient* ing = &level->ingredients[i];
-                if (ing->isPlaced) {
+                if (level->ingredients[i].isPlaced) {
+                    placed++;
+                }
+            }
+            
+            // Si tous les ingrédients ne sont pas placés, score = 0%
+            if (placed < level->ingredientCount) {
+                level->score = 0.0f;
+            } else {
+                // Tous les ingrédients sont placés, calculer la précision
+                float total = 0.0f;
+                for (int i = 0; i < level->ingredientCount; ++i) {
+                    Ingredient* ing = &level->ingredients[i];
                     Vector2 centerPlaced = {
                         ing->position.x + (ing->texture.width  / 2.0f),
                         ing->position.y + (ing->texture.height / 2.0f)
                     };
                     total += calculatePrecision(ing->targetPosition, centerPlaced);
+                }
+                level->score = total / level->ingredientCount;
+            }
+
+            level->completed = true;
+            finalScore = level->score;
+            gameState = STATE_GAME_COMPLETE;
+            s_endScreen.wantsToExit = false;
+            s_endScreen.wantsToReplay = false;
+        }
+
+        // fin du temps -> calcul score
+        if (levelTimer <= 0.0f) {
+            // Vérifier que tous les ingrédients sont placés
+            int placed = 0;
+            for (int i = 0; i < level->ingredientCount; ++i) {
+                if (level->ingredients[i].isPlaced) {
                     placed++;
                 }
             }
-            if (placed > 0) level->score = total / placed;
-            else level->score = 0.0f;
+            
+            // Si tous les ingrédients ne sont pas placés, score = 0%
+            if (placed < level->ingredientCount) {
+                level->score = 0.0f;
+            } else {
+                // Tous les ingrédients sont placés, calculer la précision
+                float total = 0.0f;
+                for (int i = 0; i < level->ingredientCount; ++i) {
+                    Ingredient* ing = &level->ingredients[i];
+                    Vector2 centerPlaced = {
+                        ing->position.x + (ing->texture.width  / 2.0f),
+                        ing->position.y + (ing->texture.height / 2.0f)
+                    };
+                    total += calculatePrecision(ing->targetPosition, centerPlaced);
+                }
+                level->score = total / level->ingredientCount;
+            }
 
             level->completed = true;
-            gameState = STATE_LEVEL_COMPLETE;
-        }
-    }
-
-    if (gameState == STATE_LEVEL_COMPLETE) {
-        if (IsKeyPressed(KEY_SPACE) || IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            currentLevel++;
-            if (currentLevel >= MAX_LEVELS) {
-                // calcul moyenne finale
-                float sum = 0.0f;
-                for (int i = 0; i < MAX_LEVELS; ++i) sum += levels[i].score;
-                finalScore = sum / MAX_LEVELS;
-                gameState = STATE_GAME_COMPLETE;
-                returnToSalonClicked = false;
-            } else {
-                gameState = STATE_SHOWING_MODEL;
-                modelTimer = 0.0f;
-            }
+            // Le jeu se termine directement après un niveau
+            finalScore = level->score;
+            gameState = STATE_GAME_COMPLETE;
+            s_endScreen.wantsToExit = false;
+            s_endScreen.wantsToReplay = false;
         }
     }
 }
@@ -723,81 +773,88 @@ static void mg_draw(void) {
     // HUD
     if (gameState == STATE_PLAYING) {
         DrawText(TextFormat("Temps restant: %.1f", levelTimer), 20, 20, 30, BLACK);
-        DrawText(TextFormat("Niveau %d/%d", currentLevel+1, MAX_LEVELS),
-                 20, 60, 24, DARKGRAY);
-    }
-
-    // Écran niveau terminé
-    if (gameState == STATE_LEVEL_COMPLETE) {
-        DrawRectangle(0,0,sw,sh,(Color){0,0,0,180});
-        DrawText(TextFormat("Niveau %d termine!", currentLevel+1),
-                 sw/2 - 150, sh/2 - 100, 30, WHITE);
-        DrawText(TextFormat("Score: %.1f%%", level->score),
-                 sw/2 - 100, sh/2 - 50, 40, YELLOW);
-        if (currentLevel < MAX_LEVELS-1) {
-            DrawText("Appuyez sur ESPACE pour continuer",
-                     sw/2 - 200, sh/2 + 50, 20, WHITE);
-        } else {
-            DrawText("Appuyez sur ESPACE pour voir les resultats",
-                     sw/2 - 250, sh/2 + 50, 20, WHITE);
-        }
-    }
-
-    // Écran final
-    if (gameState == STATE_GAME_COMPLETE) {
-        DrawRectangle(0,0,sw,sh,(Color){0,0,0,220});
-        DrawText("JEU TERMINE!", sw/2 - 150, 80, 40, WHITE);
-
-        int y = 160;
-        for (int i = 0; i < MAX_LEVELS; ++i) {
-            DrawText(TextFormat("Niveau %d: %.1f%%", i+1, levels[i].score),
-                     sw/2 - 150, y, 24, LIGHTGRAY);
-            y += 40;
-        }
-
-        DrawText(TextFormat("Moyenne finale: %.1f%%", finalScore),
-                 sw/2 - 150, y+40, 36, YELLOW);
-
-        // Calcul des pièces gagnées
-        int coinsWon = 0;
-        if (finalScore >= 100.0f) coinsWon = 5;
-        else if (finalScore >= 90.0f) coinsWon = 4;
-        else if (finalScore >= 80.0f) coinsWon = 3;
-        else if (finalScore >= 70.0f) coinsWon = 2;
-        else if (finalScore >= 60.0f) coinsWon = 1;
-
-        if (finalScore >= PASSING_SCORE) {
-            DrawText("JEU VALIDE / REUSSI!", sw/2 - 200, y+100, 30, GREEN);
-            if (coinsWon > 0) {
-                DrawText(TextFormat("Pieces gagnees: %d", coinsWon),
-                         sw/2 - 120, y+140, 24, YELLOW);
-            }
-        } else {
-            DrawText("Jeu non valide. Recommencez depuis le niveau 1.",
-                     sw/2 - 300, y+100, 24, RED);
-            DrawText("Appuyez sur R pour recommencer",
-                     sw/2 - 200, y+140, 20, WHITE);
-        }
-
-        // Bouton "Retourner dans le salon"
-        int buttonX = sw / 2 - 150;
-        int buttonY = sh - 120;
-        int buttonWidth = 300;
-        int buttonHeight = 50;
+        
+        // Bouton "Terminer" à droite
+        int buttonX = sw - 180;
+        int buttonY = sh / 2 - 40;
+        int buttonWidth = 150;
+        int buttonHeight = 80;
+        Rectangle finishButton = {buttonX, buttonY, buttonWidth, buttonHeight};
         Vector2 mouse = GetMousePosition();
-        Rectangle buttonRect = {buttonX, buttonY, buttonWidth, buttonHeight};
         
-        Color buttonColor = CheckCollisionPointRec(mouse, buttonRect) ? 
-                           (Color){100, 150, 200, 255} : (Color){80, 120, 160, 255};
+        Color buttonColor = CheckCollisionPointRec(mouse, finishButton) ? 
+                           (Color){100, 200, 100, 255} : (Color){50, 150, 50, 255};
         
-        DrawRectangleRounded(buttonRect, 0.3f, 8, buttonColor);
-        DrawRectangleRoundedLines(buttonRect, 0.3f, 8, WHITE);
+        DrawRectangleRounded(finishButton, 0.3f, 8, buttonColor);
+        DrawRectangleRoundedLines(finishButton, 0.3f, 8, WHITE);
         
-        int textWidth = MeasureText("Retourner dans le salon", 24);
-        DrawText("Retourner dans le salon", 
+        const char* buttonText = "Terminer";
+        int textWidth = MeasureText(buttonText, 24);
+        DrawText(buttonText, 
                  buttonX + (buttonWidth - textWidth) / 2,
                  buttonY + (buttonHeight - 24) / 2,
                  24, WHITE);
+    }
+
+    // Écran final avec le système standard
+    if (gameState == STATE_GAME_COMPLETE) {
+        bool won = finalScore >= PASSING_SCORE;
+        int coinsWon = won ? 5 : 0; // 5 pièces si gagné, 0 si perdu
+        
+        int cx = GetScreenWidth()/2;
+        int cy = GetScreenHeight()/2;
+        
+        // Dessiner le popup avec une hauteur plus grande pour le score
+        int modalW = 450;
+        int modalH = 260; // Augmenté pour avoir de la place pour le score
+        Rectangle modal = {cx - modalW/2, cy - modalH/2, modalW, modalH};
+        
+        // Rectangle modal avec ombre légère
+        DrawRectangle(cx - modalW/2 + 3, cy - modalH/2 + 3, modalW, modalH, (Color){0, 0, 0, 50});
+        DrawRectangleRec(modal, (Color){250, 250, 250, 255});
+        DrawRectangleLinesEx(modal, 4, (Color){80, 80, 80, 255});
+        
+        int msgY = cy - 80;
+        int by = cy + 70;
+        
+        if (won) {
+            char msg[50];
+            snprintf(msg, sizeof(msg), "Bravo ! Tu as gagne %d piece%s !", coinsWon, coinsWon > 1 ? "s" : "");
+            DrawText("BRAVO !", cx - MeasureText("BRAVO !", 40)/2, msgY, 40, GREEN);
+            
+            // Afficher le score
+            char scoreText[50];
+            snprintf(scoreText, sizeof(scoreText), "Score: %.1f%%", finalScore);
+            DrawText(scoreText, cx - MeasureText(scoreText, 24)/2, msgY + 45, 24, DARKBLUE);
+            
+            DrawText(msg, cx - MeasureText(msg, 24)/2, msgY + 75, 24, DARKGRAY);
+        } else {
+            DrawText("PERDU !", cx - MeasureText("PERDU !", 40)/2, msgY, 40, RED);
+            
+            // Afficher le score
+            char scoreText[50];
+            snprintf(scoreText, sizeof(scoreText), "Score: %.1f%%", finalScore);
+            DrawText(scoreText, cx - MeasureText(scoreText, 24)/2, msgY + 45, 24, DARKBLUE);
+            
+            if (coinsWon > 0) {
+                char msg[50];
+                snprintf(msg, sizeof(msg), "Tu as gagne %d piece%s !", coinsWon, coinsWon > 1 ? "s" : "");
+                DrawText(msg, cx - MeasureText(msg, 24)/2, msgY + 75, 24, DARKGRAY);
+            }
+        }
+        
+        // Boutons
+        Rectangle replayBtn = {cx - 120, by, 100, 40};
+        Rectangle backBtn = {cx + 20, by, 100, 40};
+        Vector2 m = GetMousePosition();
+        
+        Color replayColor = CheckCollisionPointRec(m, replayBtn) ? (Color){100, 200, 100, 255} : (Color){50, 150, 50, 255};
+        Color backColor = CheckCollisionPointRec(m, backBtn) ? (Color){200, 100, 100, 255} : (Color){150, 50, 50, 255};
+        
+        DrawRectangleRec(replayBtn, replayColor);
+        DrawText("Rejouer", cx - 100, by + 12, 20, WHITE);
+        DrawRectangleRec(backBtn, backColor);
+        DrawText("Retour", cx + 40, by + 12, 20, WHITE);
     }
 
     // Éditeur
@@ -854,37 +911,14 @@ static void mg_unload(void) {
 
 static bool mg_isCompleted(int *coinsOut) {
     if (gameState == STATE_GAME_COMPLETE) {
-        // Calcul des pièces selon le système : 60%=1, 70%=2, 80%=3, 90%=4, 100%=5
-        int coinsWon = 0;
-        if (finalScore >= 100.0f) coinsWon = 5;
-        else if (finalScore >= 90.0f) coinsWon = 4;
-        else if (finalScore >= 80.0f) coinsWon = 3;
-        else if (finalScore >= 70.0f) coinsWon = 2;
-        else if (finalScore >= 60.0f) coinsWon = 1;
+        // 5 pièces si gagné (score >= 60%), 0 si perdu
+        bool won = finalScore >= PASSING_SCORE;
+        int coinsWon = won ? 5 : 0;
 
         if (coinsOut) *coinsOut = coinsWon;
 
-        // R pour recommencer si raté
-        if (IsKeyPressed(KEY_R) && finalScore < PASSING_SCORE) {
-            currentLevel = 0;
-            gameState = STATE_SHOWING_MODEL;
-            modelTimer = 0.0f;
-            levelTimer = 0.0f;
-            draggedIngredient = NULL;
-            finalScore = 0.0f;
-            for (int i = 0; i < MAX_LEVELS; ++i) {
-                levels[i].completed = false;
-                levels[i].score = 0.0f;
-            }
-            returnToSalonClicked = false;
-            return false;
-        }
-
-        // On ne signale la complétion au hub que si l'utilisateur a cliqué sur le bouton
-        if (returnToSalonClicked) {
-            return true;
-        }
-        return false;
+        // Ne signaler la complétion que si l'utilisateur veut quitter
+        return s_endScreen.wantsToExit;
     }
     return false;
 }

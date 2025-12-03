@@ -137,9 +137,7 @@ static const char *ZONE_BG_FILES[ZONE_COUNT] = {
 static const float MINIGAME_POPUP_DURATION = 3.0f;
 
 static void prepareMinigameSession(Game *g, MinigameAPI api, const char *prettyName);
-static void triggerMinigamePopup(Game *g, int coins);
 static void finalizeMinigame(Game *g);
-static void drawCompletionPopup(const Game *g);
 
 static float clampf(float v, float lo, float hi) {
     return v < lo ? lo : (v > hi ? hi : v);
@@ -317,12 +315,11 @@ static void drawMinigameStatusTable(const Game *g) {
     DrawRectangleRounded((Rectangle){ tableX - 10, tableY - 20, tableWidth + 20, tableHeight + 30 }, 0.08f, 6, (Color){ 0, 0, 0, 160 });
     DrawText("Etat des mini-jeux", (int)tableX, (int)tableY - 10, 26, RAYWHITE);
 
-    DrawLine(tableX, tableY + 8, tableX + tableWidth, tableY + 8, LIGHTGRAY);
-    DrawText("Pièce", (int)tableX, (int)tableY + 18, 22, LIGHTGRAY);
-    DrawText("Statut", (int)(tableX + tableWidth - 150), (int)tableY + 18, 22, LIGHTGRAY);
+    DrawLine(tableX, tableY + 18, tableX + tableWidth, tableY + 18, LIGHTGRAY);
+    DrawText("Statut", (int)(tableX + tableWidth - 150), (int)tableY + 28, 22, LIGHTGRAY);
 
     for (int i = 0; i < ZONE_COUNT; ++i) {
-        float rowY = tableY + 18 + rowHeight * (i + 1);
+        float rowY = tableY + 28 + rowHeight * (i + 1);
         const char *status = g->progress[i].completed ? "Terminée" : "Non fait";
         DrawText(zoneLabels[i], (int)tableX, (int)rowY, 22, RAYWHITE);
         DrawText(status, (int)(tableX + tableWidth - 150), (int)rowY, 22, g->progress[i].completed ? (Color){ 120, 230, 140, 255 } : (Color){ 255, 210, 120, 255 });
