@@ -91,6 +91,9 @@ static bool editorMode = false;
 static int editorSelectedLevel = 0;
 static int editorSelectedIngredient = 0;
 
+// Timer d'écran de fin (avant retour au menu principal)
+static float gameEndTimer = 0.0f;
+
 // --------- Helpers ---------
 
 static const char* getIngredientName(IngredientType type) {
@@ -289,6 +292,7 @@ static void mg_init(void) {
     editorMode = false;
     editorSelectedLevel = 0;
     editorSelectedIngredient = 0;
+    gameEndTimer = 0.0f;
 }
 
 // --------- Mode éditeur (simple) ---------
@@ -380,6 +384,11 @@ static void mg_update(float dt) {
     }
 
     if (gameState == STATE_GAME_COMPLETE) {
+        // Compte à rebours de l'écran final avant de signaler la fin au hub
+        if (gameEndTimer > 0.0f) {
+            gameEndTimer -= dt;
+            if (gameEndTimer < 0.0f) gameEndTimer = 0.0f;
+        }
         return;
     }
 
@@ -500,6 +509,7 @@ static void mg_update(float dt) {
                 for (int i = 0; i < MAX_LEVELS; ++i) sum += levels[i].score;
                 finalScore = sum / MAX_LEVELS;
                 gameState = STATE_GAME_COMPLETE;
+                gameEndTimer = 3.0f; // 3 secondes d'écran final avant retour menu
             } else {
                 gameState = STATE_SHOWING_MODEL;
                 modelTimer = 0.0f;
@@ -725,8 +735,8 @@ static bool mg_isCompleted(int *coinsOut) {
     if (gameState == STATE_GAME_COMPLETE) {
         if (coinsOut) *coinsOut = (int)(finalScore / 10.0f);
 
-        // R pour recommencer si raté
-        if (IsKeyPressed(KEY_R) && finalScore < PASSING_SCORE) {
+        // R pour recommencer si raté, tant que l'écran final est affiché
+        if (IsKeyPressed(KEY_R) && finalScore < PASSING_SCORE && gameEndTimer > 0.0f) {
             currentLevel = 0;
             gameState = STATE_SHOWING_MODEL;
             modelTimer = 0.0f;
@@ -737,9 +747,15 @@ static bool mg_isCompleted(int *coinsOut) {
                 levels[i].completed = false;
                 levels[i].score = 0.0f;
             }
+            gameEndTimer = 0.0f;
             return false;
         }
-        return true;
+
+        // On ne signale la complétion au hub qu'une fois le timer écoulé
+        if (gameEndTimer <= 0.0f) {
+            return true;
+        }
+        return false;
     }
     return false;
 }

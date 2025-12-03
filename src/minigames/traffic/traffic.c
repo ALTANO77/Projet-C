@@ -17,6 +17,7 @@ static float speedAccelPx = 18.0f;   // px/s^2 acceleration for increasing diffi
 static float maxSpeedPx   = 1200.0f; // > 15 m/s (1200/48 = 25 m/s)
 static float goalMeters   = 1000.0f;
 static bool levelCompleted;
+static float completionMessageTimer;
 
 // Textures
 static Texture2D texPlayer; // fallback single frame
@@ -45,6 +46,7 @@ static float coinSpawnTimer;
 static int collectedCoins;
 
 static Texture2D loadTextureIfExists(const char *path) {
+    if (!FileExists(path)) return (Texture2D){0};
     Image img = LoadImage(path);
     if (!img.data) return (Texture2D){0};
     Texture2D tex = LoadTextureFromImage(img);
@@ -100,6 +102,7 @@ static void resetTraffic(void) {
     lives = 3;
     distancePixels = 0.0f;
     coinCount = 0; coinSpawnTimer = 0.0f; collectedCoins = 0;
+    completionMessageTimer = 0.0f;
 }
 
 static bool intersect(const RectF *a, const RectF *b) {
@@ -182,6 +185,12 @@ static void mg_update(float dt) {
         return;
     }
 
+    if (levelCompleted && completionMessageTimer > 0.0f) {
+        completionMessageTimer -= dt;
+        if (completionMessageTimer < 0.0f) completionMessageTimer = 0.0f;
+        return;
+    }
+
     // Déplacement continu sur deux axes (X et Y)
     {
         const float moveSpeedX = 260.0f;
@@ -247,6 +256,7 @@ static void mg_update(float dt) {
     if (!levelCompleted) {
         float meters = distancePixels / pixelsPerMeter;
         if (meters >= goalMeters) levelCompleted = true;
+        if (levelCompleted) completionMessageTimer = 3.0f;
     }
 }
 
@@ -330,6 +340,15 @@ static void mg_draw(void) {
         DrawText(hud, x,   y,   fontSize, (Color){255, 240, 160, 255});
     }
     if (lives <= 0) DrawText("Oups! Tu as perdu. Appuie sur R pour rejouer.", 20, 60, 24, (Color){255,230,120,255});
+    if (levelCompleted && completionMessageTimer > 0.0f) {
+        const char *msg = "Felicitation vous avez reussi ce mini jeu";
+        int fontSize = 36;
+        int textWidth = MeasureText(msg, fontSize);
+        int x = (GetScreenWidth() - textWidth) / 2;
+        int y = GetScreenHeight() / 2 - fontSize;
+        DrawText(msg, x+2, y+2, fontSize, (Color){20,20,20,200});
+        DrawText(msg, x, y, fontSize, (Color){255,255,200,255});
+    }
 }
 
 static void mg_unload(void) {
@@ -345,7 +364,8 @@ static void mg_unload(void) {
 
 static bool mg_isCompleted(int *coinsOut) {
     if (coinsOut) *coinsOut = collectedCoins;
-    return levelCompleted;
+    // Ne signaler la fin qu'une fois l'écran de félicitations écoulé
+    return levelCompleted && completionMessageTimer <= 0.0f;
 }
 
 MinigameAPI GetMinigameTraffic(void) {

@@ -171,6 +171,8 @@ static float orderSpawnTimer = 0.0f;
 static float levelTimer = 240.0f;
 static bool levelComplete = false;
 static bool levelFailed = false;
+// Timer pour laisser l'écran de fin s'afficher avant retour au menu
+static float levelEndTimer = 0.0f;
 
 static bool alarmActive = false;
 static float alarmFlash = 0.0f;
@@ -1477,6 +1479,7 @@ static void mg_init(void) {
     levelTimer = 240.0f;
     levelComplete = false;
     levelFailed = false;
+    levelEndTimer = 0.0f;
     alarmActive = false;
     alarmFlash = 0.0f;
     shakeTimer = 0.0f;
@@ -1542,7 +1545,16 @@ static void mg_init(void) {
 static void mg_update(float dt) {
     handleEditorMode();
     
-    if (levelComplete || levelFailed) return;
+    if (levelComplete || levelFailed) {
+        // Laisser l'écran de fin affiché quelques secondes avant de quitter
+        if (levelEndTimer <= 0.0f) {
+            levelEndTimer = 3.0f;
+        } else {
+            levelEndTimer -= dt;
+            if (levelEndTimer < 0.0f) levelEndTimer = 0.0f;
+        }
+        return;
+    }
     if (editorMode) {
         refreshHighlights();
         return;
@@ -1998,7 +2010,8 @@ static void mg_unload(void) {
 
 static bool mg_isCompleted(int *coinsOut) {
     if (coinsOut) *coinsOut = levelComplete ? coinsEarned : 0;
-    return levelComplete || levelFailed;
+    // Ne signaler la fin au hub qu'après l'affichage de l'écran de fin
+    return (levelComplete || levelFailed) && levelEndTimer <= 0.0f;
 }
 
 MinigameAPI GetMinigameYoureCooked(void) {

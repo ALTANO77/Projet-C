@@ -60,6 +60,13 @@ typedef struct {
     bool loggingEnabled;
     int collectibles;
     MinigameAPI currentMinigame;
+    const char *currentMinigameName;
+    bool minigameCompleted;
+    bool showCompletionPopup;
+    float completionPopupTimer;
+    float completionPopupDuration;
+    int pendingCoinsReward;
+    char completionPopupText[128];
     int activeZone;
     ZoneProgress progress[ZONE_COUNT];
     Texture2D menuBackground;
@@ -127,6 +134,12 @@ static const char *ZONE_BG_FILES[ZONE_COUNT] = {
     "assets/bg_bibliotheque.png",
     "assets/bg_cuisine.png"
 };
+static const float MINIGAME_POPUP_DURATION = 3.0f;
+
+static void prepareMinigameSession(Game *g, MinigameAPI api, const char *prettyName);
+static void triggerMinigamePopup(Game *g, int coins);
+static void finalizeMinigame(Game *g);
+static void drawCompletionPopup(const Game *g);
 
 static float clampf(float v, float lo, float hi) {
     return v < lo ? lo : (v > hi ? hi : v);
@@ -154,12 +167,56 @@ static void drawGround(void) {
 
 static Texture2D loadTextureIfAvailable(const char *path) {
     Texture2D tex = {0};
+    if (!FileExists(path)) return tex;
     Image img = LoadImage(path);
     if (img.data) {
         tex = LoadTextureFromImage(img);
         UnloadImage(img);
     }
     return tex;
+}
+
+static void prepareMinigameSession(Game *g, MinigameAPI api, const char *prettyName) {
+    g->currentMinigame = api;
+    g->currentMinigameName = prettyName;
+    g->minigameCompleted = false;
+    g->showCompletionPopup = false;
+    g->pendingCoinsReward = 0;
+    g->completionPopupTimer = 0.0f;
+    g->completionPopupDuration = MINIGAME_POPUP_DURATION;
+    g->completionPopupText[0] = '\0';
+    if (g->currentMinigame.init) g->currentMinigame.init();
+    g->state = STATE_MINIJEU;
+}
+
+static void triggerMinigamePopup(Game *g, int coins) {
+    if (g->minigameCompleted) return;
+    g->pendingCoinsReward = coins;
+    g->minigameCompleted = true;
+    g->showCompletionPopup = true;
+    g->completionPopupTimer = 0.0f;
+    g->completionPopupDuration = MINIGAME_POPUP_DURATION;
+    const char *name = g->currentMinigameName ? g->currentMinigameName : "ce mini-jeu";
+    snprintf(g->completionPopupText, sizeof(g->completionPopupText),
+             "Bravo vous avez réussi le jeu \"%s\" !", name);
+}
+
+static void finalizeMinigame(Game *g) {
+    g->collectibles += g->pendingCoinsReward;
+    if (g->activeZone >= 0 && g->activeZone < ZONE_COUNT) {
+        g->progress[g->activeZone].completed = true;
+    }
+    if (g->currentMinigame.unload) g->currentMinigame.unload();
+    g->currentMinigame = (MinigameAPI){0};
+    g->currentMinigameName = NULL;
+    g->pendingCoinsReward = 0;
+    g->minigameCompleted = false;
+    g->showCompletionPopup = false;
+    g->completionPopupTimer = 0.0f;
+    g->completionPopupDuration = MINIGAME_POPUP_DURATION;
+    g->completionPopupText[0] = '\0';
+    g->state = STATE_HUB;
+    g->activeZone = ZONE_NONE;
 }
 
 static void initDefaultLayout(Game *g) {
@@ -295,6 +352,37 @@ static void drawCoinCounter(const Game *g) {
     };
     DrawRectangleRounded(box, 0.12f, 6, (Color){ 0, 0, 0, 160 });
     DrawText(label, (int)(box.x + padding), (int)(box.y + 12), fontSize, GOLD);
+}
+
+static void drawCompletionPopup(const Game *g) {
+    if (!g->showCompletionPopup) return;
+    float sw = (float)GetScreenWidth();
+    float sh = (float)GetScreenHeight();
+    DrawRectangle(0, 0, (int)sw, (int)sh, (Color){ 0, 0, 0, 160 });
+
+    Rectangle box = {
+        sw * 0.2f,
+        sh * 0.3f,
+        sw * 0.6f,
+        sh * 0.4f
+    };
+    DrawRectangleRounded(box, 0.1f, 10, (Color){ 245, 245, 245, 245 });
+    DrawRectangleRoundedLines(box, 0.1f, 10, (Color){ 90, 90, 90, 255 });
+
+    const char *message = g->completionPopupText[0] ? g->completionPopupText : "Bravo !";
+    int titleSize = 36;
+    int msgWidth = MeasureText(message, titleSize);
+    DrawText(message, (int)(box.x + (box.width - msgWidth) / 2), (int)(box.y + 50), titleSize, (Color){ 40, 40, 40, 255 });
+
+    const char *coinsText = TextFormat("+%d pièces", g->pendingCoinsReward);
+    int coinsSize = 28;
+    int coinsWidth = MeasureText(coinsText, coinsSize);
+    DrawText(coinsText, (int)(box.x + (box.width - coinsWidth) / 2), (int)(box.y + box.height / 2 - 10), coinsSize, (Color){ 100, 160, 100, 255 });
+
+    const char *hint = "Appuie sur Entree ou clique pour revenir au hub";
+    int hintSize = 22;
+    int hintWidth = MeasureText(hint, hintSize);
+    DrawText(hint, (int)(box.x + (box.width - hintWidth) / 2), (int)(box.y + box.height - 60), hintSize, (Color){ 90, 90, 90, 255 });
 }
 
 static Rectangle getMusicButtonRect(void) {
@@ -565,13 +653,14 @@ static GameState zoneToState(ZoneId zone) {
 
 int main(int argc, char **argv) {
     Game g = {0};
+    g.completionPopupDuration = MINIGAME_POPUP_DURATION;
     for (int i = 1; i < argc; ++i) if (strcmp(argv[i], "--log") == 0) g.loggingEnabled = true;
 
     SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI | FLAG_WINDOW_RESIZABLE);
     InitWindow(1920, 1080, "Gros Nounours 2D");
     InitAudioDevice();
     // Icône de fenêtre (placer votre image sous assets/icon.png)
-    {
+    if (FileExists("assets/icon.png")) {
         Image icon = LoadImage("assets/icon.png");
         if (icon.data) { SetWindowIcon(icon); UnloadImage(icon); }
     }
@@ -695,12 +784,15 @@ int main(int argc, char **argv) {
                 if (IsKeyPressed(KEY_ENTER)) {
                     // Choix mini‑jeu par zone
                     // Jardin -> Traffic, Puzzle -> PoussePousse, Bibliothèque -> Pendu, Cuisine -> CeriseSurGateau
-                    if (g.state == STATE_ZONE_JARDIN) g.currentMinigame = GetMinigameTraffic();
-                    else if (g.state == STATE_ZONE_CHAMBRE) g.currentMinigame = GetMinigamePoussePousse();
-                    else if (g.state == STATE_ZONE_GRENIER) g.currentMinigame = GetMinigamePendu();
-                    else g.currentMinigame = GetMinigameCeriseSurGateau(); // cuisine
-                    if (g.currentMinigame.init) g.currentMinigame.init();
-                    g.state = STATE_MINIJEU;
+                    if (g.state == STATE_ZONE_JARDIN) {
+                        prepareMinigameSession(&g, GetMinigameTraffic(), "Traffic");
+                    } else if (g.state == STATE_ZONE_CHAMBRE) {
+                        prepareMinigameSession(&g, GetMinigamePoussePousse(), "Pousse-Pousse");
+                    } else if (g.state == STATE_ZONE_GRENIER) {
+                        prepareMinigameSession(&g, GetMinigamePendu(), "Pendu");
+                    } else {
+                        prepareMinigameSession(&g, GetMinigameCeriseSurGateau(), "Cerise sur gâteau"); // cuisine
+                    }
                 }
                 break;
             case STATE_SHOP:
@@ -718,20 +810,34 @@ int main(int argc, char **argv) {
                 break;
             case STATE_MINIJEU:
                 if (IsKeyPressed(KEY_BACKSPACE)) {
-                    if (g.currentMinigame.unload) g.currentMinigame.unload();
-                    g.state = STATE_HUB;
-                    g.activeZone = ZONE_NONE;
-                }
-                if (g.currentMinigame.update) g.currentMinigame.update(dt);
-                // Gestion de la fin des mini-jeux et récupération des pièces
-                if (g.currentMinigame.isCompleted) {
-                    int coins = 0;
-                    if (g.currentMinigame.isCompleted(&coins)) {
-                        g.collectibles += coins;
-                        if (g.activeZone >= 0 && g.activeZone < ZONE_COUNT) g.progress[g.activeZone].completed = true;
+                    if (g.minigameCompleted) {
+                        finalizeMinigame(&g);
+                    } else {
                         if (g.currentMinigame.unload) g.currentMinigame.unload();
+                        g.currentMinigame = (MinigameAPI){0};
+                        g.currentMinigameName = NULL;
                         g.state = STATE_HUB;
                         g.activeZone = ZONE_NONE;
+                    }
+                    break;
+                }
+
+                if (!g.minigameCompleted) {
+                    if (g.currentMinigame.update) g.currentMinigame.update(dt);
+                    // Gestion de la fin des mini-jeux et récupération des pièces
+                    if (g.currentMinigame.isCompleted) {
+                        int coins = 0;
+                        if (g.currentMinigame.isCompleted(&coins)) {
+                            triggerMinigamePopup(&g, coins);
+                        }
+                    }
+                } else {
+                    g.completionPopupTimer += dt;
+                    bool shouldExit = (g.completionPopupDuration > 0.0f && g.completionPopupTimer >= g.completionPopupDuration)
+                                      || IsKeyPressed(KEY_ENTER)
+                                      || IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
+                    if (shouldExit) {
+                        finalizeMinigame(&g);
                     }
                 }
                 break;
@@ -780,6 +886,7 @@ int main(int argc, char **argv) {
                 break;
             case STATE_MINIJEU:
                 if (g.currentMinigame.draw) g.currentMinigame.draw();
+                if (g.showCompletionPopup) drawCompletionPopup(&g);
                 break;
             default: break;
         }

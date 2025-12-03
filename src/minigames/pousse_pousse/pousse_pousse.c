@@ -131,6 +131,8 @@ static bool s_tilesLoaded = false;
 static int s_moveCount = 0;   // nombre de coups joués
 static Texture2D s_bgTexture;            // la texture de fond
 static bool      s_bgLoaded = false;     // est-ce qu'on l'a chargée ?
+// Timer pour garder l'écran de victoire visible avant retour au menu
+static float     s_endTimer = 0.0f;
 
 // calcule la taille et la position du plateau en fonction de la fenêtre
 static void GetBoardLayout(int *tileSize, int *offsetX, int *offsetY) {
@@ -153,6 +155,7 @@ static void PoussePousse_Init(void) {
     s_finished   = false;
     s_initialized = true;
     s_moveCount = 0;   // on remet le compteur à zéro
+    s_endTimer = 0.0f;
     
     // Charger les 15 images si pas déjà fait
     if (!s_tilesLoaded) {
@@ -187,8 +190,18 @@ static void PoussePousse_Init(void) {
 
 // appelé à chaque frame pour gérer les clics
 static void PoussePousse_Update(float dt) {
-    (void)dt;
-    if (!s_initialized || s_finished) return;
+    if (!s_initialized) return;
+
+    // Si le puzzle est terminé, on laisse l'écran de victoire affiché quelques secondes
+    if (s_finished) {
+        if (s_endTimer <= 0.0f) {
+            s_endTimer = 3.0f;
+        } else {
+            s_endTimer -= dt;
+            if (s_endTimer < 0.0f) s_endTimer = 0.0f;
+        }
+        return;
+    }
 
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
         int tileSize, offX, offY;
@@ -298,7 +311,8 @@ static void PoussePousse_Unload(void) {
 
 // renvoie true quand le mini-jeu est termine, et indique le nombre de pieces
 static bool PoussePousse_IsCompleted(int *coins) {
-    if (!s_finished) return false;
+    // Ne signaler la fin qu'après l'affichage de l'écran de victoire
+    if (!s_finished || s_endTimer > 0.0f) return false;
     if (coins) *coins = 1;   // récompense : 1 pièce
     return true;
 }
