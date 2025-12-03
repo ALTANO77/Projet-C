@@ -36,6 +36,8 @@ static const char *DEFS_5[] = {
 static int currentWordIndex = 0;
 static char word[20], guessed[20], letters[26];
 static int errors = 0, won = 0, lost = 0, init = 0, isHardWord = 0, wantsToExit = 0;
+static Texture2D backgroundTex = {0};
+static bool hasBackground = false;
 
 static void init_game(void) {
     srand((unsigned)time(NULL));
@@ -59,6 +61,17 @@ static void init_game(void) {
     memset(letters, 0, 26);
     // Ne pas marquer la première lettre comme utilisée pour permettre de cliquer dessus si elle apparaît plusieurs fois
     errors = won = lost = wantsToExit = 0;
+    
+    // Charger le fond si pas déjà chargé
+    if (!hasBackground) {
+        Image bgImg = LoadImage("assets/pendu/image_fond_pendu.png");
+        if (bgImg.data) {
+            backgroundTex = LoadTextureFromImage(bgImg);
+            UnloadImage(bgImg);
+            hasBackground = (backgroundTex.id != 0);
+        }
+    }
+    
     init = 1;
 }
 
@@ -191,7 +204,35 @@ static void update_game(float dt) {
 
 static void draw_game(void) {
     if (!init) return;
-    ClearBackground(RAYWHITE);
+    
+    // Afficher le fond
+    if (hasBackground) {
+        Rectangle src = {0, 0, (float)backgroundTex.width, (float)backgroundTex.height};
+        int screenW = GetScreenWidth();
+        int screenH = GetScreenHeight();
+        
+        // Garder la largeur de l'écran et calculer la hauteur selon le ratio de l'image
+        float imgRatio = (float)backgroundTex.width / (float)backgroundTex.height;
+        float dstW = (float)screenW;
+        float dstH = dstW / imgRatio * 0.72f; // Réduire un peu la hauteur
+        
+        // Centrer verticalement et remonter un peu
+        float dstY = (screenH - dstH) / 2.0f - 30.0f;
+        
+        Rectangle dst = {0, dstY, dstW, dstH};
+        DrawTexturePro(backgroundTex, src, dst, (Vector2){0, 0}, 0.0f, WHITE);
+        
+        // Remplir les zones vides en haut et en bas avec du blanc
+        if (dstY > 0) {
+            DrawRectangle(0, 0, screenW, (int)dstY, RAYWHITE);
+        }
+        if (dstY + dstH < screenH) {
+            DrawRectangle(0, (int)(dstY + dstH), screenW, screenH - (int)(dstY + dstH), RAYWHITE);
+        }
+    } else {
+        ClearBackground(RAYWHITE);
+    }
+    
     DrawText("PENDU", GetScreenWidth()/2 - 50, 30, 40, BLACK);
     
     // Pendu simple
@@ -208,7 +249,7 @@ static void draw_game(void) {
     int len = strlen(guessed);
     for (int i = 0; i < len; i++) {
         char s[2] = {guessed[i], 0};
-        DrawText(s, cx - len*15 + i*30, 250, 40, BLUE);
+        DrawText(s, cx - len*15 + i*30 + 350, 280, 40, BLUE);
     }
     
     // Clavier
@@ -344,7 +385,13 @@ static void draw_game(void) {
     }
 }
 
-static void unload_game(void) { init = 0; }
+static void unload_game(void) {
+    if (hasBackground) {
+        UnloadTexture(backgroundTex);
+        hasBackground = false;
+    }
+    init = 0;
+}
 
 static bool is_done(int *coins) {
     // Ne retourner true que si l'utilisateur veut quitter (bouton Retour ou Backspace)
