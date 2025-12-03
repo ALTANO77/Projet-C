@@ -4,6 +4,7 @@
 #include <time.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <math.h>
 
 static const char *WORDS_2[] = {"NOUNOURS", "COUVERTURE", "OREILLER", "BISOU", "BONBON", "COUETTE", "SOMMEIL", "TENDRESSE", "MOUSTACHE", "AVENTURE", "LUMIERE", "ETOILE", "SOURIRE"};
 static const char *WORDS_5[] = {"MOLLETONNAGE", "EFFILOCHAGE", "REMBOURRAGE", "SCINTILLEMENT", "LUMINESCENCE", "SOMNOLENCE", "EMERVEILLEMENT", "APAISEMENT", "BIENVEILLANCE"};
@@ -235,21 +236,51 @@ static void draw_game(void) {
     
     DrawText("PENDU", GetScreenWidth()/2 - 50, 30, 40, BLACK);
     
-    // Pendu simple
-    int cx = GetScreenWidth()/2, y = 100;
-    if (errors > 0) DrawLine(cx-50, y+100, cx+50, y+100, BLACK);
-    if (errors > 1) DrawLine(cx, y, cx, y+100, BLACK);
-    if (errors > 2) DrawLine(cx, y, cx+50, y, BLACK);
-    if (errors > 3) DrawLine(cx+50, y, cx+50, y+30, BLACK);
-    if (errors > 4) DrawCircle(cx+50, y+50, 20, BLACK);
-    if (errors > 5) DrawLine(cx+50, y+70, cx+50, y+90, BLACK);
-    if (errors > 6) { DrawLine(cx+50, y+80, cx+30, y+60, BLACK); DrawLine(cx+50, y+80, cx+70, y+60, BLACK); }
+    // Fleur avec 7 pétales
+    int flowerX = GetScreenWidth()/2 - 400, flowerY = 400;
+    float petalRadius = 30.0f;
+    float centerRadius = 25.0f;
+    int totalPetals = 7;
+    int remainingPetals = totalPetals - errors;
+    
+    // Texte au-dessus de la fleur
+    const char *instruction = "Ne perds pas toutes les pétales de la fleur";
+    int textWidth = MeasureText(instruction, 24);
+    DrawText(instruction, flowerX - textWidth/2 + 30, flowerY - 200, 24, BLACK);
+    
+    // Dessiner les pétales restantes
+    for (int i = 0; i < remainingPetals && i < totalPetals; i++) {
+        float angle = (i * 360.0f / totalPetals) * 3.14159f / 180.0f;
+        float petalX = flowerX + cosf(angle) * 60.0f;
+        float petalY = flowerY + sinf(angle) * 60.0f;
+        DrawCircle((int)petalX, (int)petalY, petalRadius, (Color){255, 192, 203, 255}); // Rose
+        DrawCircleLines((int)petalX, (int)petalY, petalRadius, BLACK);
+    }
+    
+    // Dessiner le cœur de la fleur
+    DrawCircle(flowerX, flowerY, centerRadius, YELLOW);
+    DrawCircleLines(flowerX, flowerY, centerRadius, BLACK);
+    
+    // Dessiner la tige (sous les pétales)
+    int stemStartY = flowerY + 90; // Commence bien sous les pétales
+    int stemEndY = flowerY + 250; // Longueur de la tige
+    DrawLineEx((Vector2){flowerX, stemStartY}, (Vector2){flowerX, stemEndY}, 8.0f, (Color){34, 139, 34, 255}); // Vert foncé
+    
+    // Dessiner les feuilles
+    // Feuille gauche
+    DrawEllipse(flowerX - 30, flowerY + 150, 25, 15, (Color){50, 205, 50, 255}); // Vert
+    DrawEllipseLines(flowerX - 30, flowerY + 150, 25, 15, (Color){34, 139, 34, 255});
+    
+    // Feuille droite
+    DrawEllipse(flowerX + 30, flowerY + 180, 25, 15, (Color){50, 205, 50, 255}); // Vert
+    DrawEllipseLines(flowerX + 30, flowerY + 180, 25, 15, (Color){34, 139, 34, 255});
     
     // Mot
     int len = strlen(guessed);
+    int wordCx = GetScreenWidth()/2; // Position indépendante du pendu
     for (int i = 0; i < len; i++) {
         char s[2] = {guessed[i], 0};
-        DrawText(s, cx - len*15 + i*30 + 350, 280, 40, BLUE);
+        DrawText(s, wordCx - len*15 + i*30 + 350, 280, 40, BLUE);
     }
     
     // Clavier
@@ -265,12 +296,12 @@ static void draw_game(void) {
     // Afficher la définition à gauche si 5 erreurs ou si gagné
     if (errors >= 5 || won) {
         const char *def = isHardWord ? DEFS_5[currentWordIndex] : DEFS_2[currentWordIndex];
-        int defX = 20;
-        int defY = 150;
-        int defW = 400;
-        int defH = 350;
-        int fontSize = 20;
-        int lineHeight = 26;
+        int defX = 1220; // Décalé de 1200 pixels vers la droite
+        int defY = 450; // Descendu de 300 pixels
+        int defW = 360; // Réduit un peu
+        int defH = 280; // Réduit encore un peu
+        int fontSize = 28; // Plus gros
+        int lineHeight = 34; // Ajusté pour la nouvelle taille
         int maxWidth = defW - 20;
         
         // Fond pour la définition à gauche
@@ -278,7 +309,7 @@ static void draw_game(void) {
         DrawRectangleLines(defX, defY, defW, defH, (Color){200, 150, 50, 255});
         
         // Titre
-        DrawText("Definition:", defX + 10, defY + 10, 22, DARKBLUE);
+        DrawText("Definition:", defX + 10, defY + 10, 30, DARKBLUE);
         
         // Définition sur plusieurs lignes avec meilleur découpage
         int x = defX + 10;
