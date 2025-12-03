@@ -8,7 +8,6 @@
 // - mode éditeur simple (Ctrl+F2) pour déplacer le cercle et les positions cibles
 
 #include "cerisesurgateau.h"
-#include "minigame_end_screen.h"
 #include "raylib.h"
 #include <math.h>
 #include <stdbool.h>
@@ -21,7 +20,8 @@
 #define LEVEL_TIME 30.0f
 #define CAKE_PLACEMENT_RADIUS 200.0f
 #define MAX_DISTANCE 200.0f
-#define PASSING_SCORE 90.0f
+#define PASSING_SCORE 60.0f
+#define LEVEL_CONFIG_FILE "config/cerise_levels.ini"
 
 // Types d'ingrédients
 typedef enum {
@@ -92,9 +92,8 @@ static bool editorMode = false;
 static int editorSelectedLevel = 0;
 static int editorSelectedIngredient = 0;
 
-// Timer d'écran de fin (avant retour au menu principal)
-static float gameEndTimer = 0.0f;
-static EndScreenState s_endScreen = {0};
+// Flag pour savoir si l'utilisateur a cliqué sur le bouton de retour
+static bool returnToSalonClicked = false;
 
 // --------- Helpers ---------
 
@@ -146,7 +145,7 @@ static void initLevel(int levelIndex) {
     // Charger modèle
     char modelPath[256];
     snprintf(modelPath, sizeof(modelPath),
-             "assets/cerisesurgateau/image de gateau lvl/gateau_niveau%d.png",
+             "assets/cerisesurgateau/image de gateau lvl/gateau%d.png",
              levelIndex + 1);
     if (FileExists(modelPath)) {
         Image img = LoadImage(modelPath);
@@ -156,16 +155,8 @@ static void initLevel(int levelIndex) {
         }
     }
 
-    // Gâteau de base
-    if (FileExists("assets/cerisesurgateau/image de gateau lvl/gateau_base.png")) {
-        Image img = LoadImage("assets/cerisesurgateau/image de gateau lvl/gateau_base.png");
-        if (img.data) {
-            level->cakeBaseTexture = LoadTextureFromImage(img);
-            UnloadImage(img);
-        }
-    } else {
-        level->cakeBaseTexture = level->modelTexture;
-    }
+    // Gâteau de base - ne pas charger (on ne veut pas afficher le gâteau de base)
+    level->cakeBaseTexture.id = 0;
 
     level->ingredientCount = INGREDIENT_COUNT;
 
@@ -255,6 +246,86 @@ static void updateTrayPositionsForLevel(Level* level, int screenWidth, int scree
     }
 }
 
+// --------- Sauvegarde/Chargement des niveaux ---------
+
+static void saveLevelConfig(void) {
+    FILE *f = fopen(LEVEL_CONFIG_FILE, "w");
+    if (!f) return;
+
+    fprintf(f, "# Configuration des niveaux Cerise sur Gateau\n\n");
+    fprintf(f, "tray_height=%.2f\n", trayHeight);
+    fprintf(f, "cake_center=%.2f,%.2f\n", cakeCenter.x, cakeCenter.y);
+    fprintf(f, "cake_radius=%.2f\n", cakeRadius);
+    fprintf(f, "tray_scale=%.2f\n", trayScale);
+    fprintf(f, "tray_margin_bottom=%.2f\n", trayMarginBottom);
+    fprintf(f, "tray_spacing=%.2f\n", traySpacing);
+
+    for (int level = 0; level < MAX_LEVELS; ++level) {
+        Level* l = &levels[level];
+        for (int i = 0; i < l->ingredientCount; ++i) {
+            fprintf(f, "level_%d_ingredient_%d=%.2f,%.2f\n",
+                    level + 1, i,
+                    l->ingredients[i].targetPosition.x,
+                    l->ingredients[i].targetPosition.y);
+        }
+    }
+
+    fclose(f);
+}
+
+static void loadLevelConfig(void) {
+    FILE *f = fopen(LEVEL_CONFIG_FILE, "r");
+    if (!f) return;
+
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        if (line[0] == '#' || line[0] == '\n') continue;
+
+        if (strncmp(line, "tray_height=", 12) == 0) {
+            float h;
+            if (sscanf(line + 12, "%f", &h) == 1) {
+                trayHeight = h;
+                if (trayHeight < 60.0f) trayHeight = 60.0f;
+                if (trayHeight > 300.0f) trayHeight = 300.0f;
+            }
+        } else if (strncmp(line, "cake_center=", 12) == 0) {
+            float x, y;
+            if (sscanf(line + 12, "%f,%f", &x, &y) == 2) {
+                cakeCenter = (Vector2){x, y};
+            }
+        } else if (strncmp(line, "cake_radius=", 12) == 0) {
+            float r;
+            if (sscanf(line + 12, "%f", &r) == 1) {
+                cakeRadius = r;
+            }
+        } else if (strncmp(line, "tray_scale=", 11) == 0) {
+            float s;
+            if (sscanf(line + 11, "%f", &s) == 1) {
+                trayScale = s;
+            }
+        } else if (strncmp(line, "tray_margin_bottom=", 19) == 0) {
+            float m;
+            if (sscanf(line + 19, "%f", &m) == 1) {
+                trayMarginBottom = m;
+            }
+        } else if (strncmp(line, "tray_spacing=", 13) == 0) {
+            float sp;
+            if (sscanf(line + 13, "%f", &sp) == 1) {
+                traySpacing = sp;
+            }
+        } else {
+            int level, ingredient;
+            float x, y;
+            if (sscanf(line, "level_%d_ingredient_%d=%f,%f", &level, &ingredient, &x, &y) == 4) {
+                if (level >= 1 && level <= MAX_LEVELS && ingredient >= 0 && ingredient < INGREDIENT_COUNT) {
+                    levels[level - 1].ingredients[ingredient].targetPosition = (Vector2){x, y};
+                }
+            }
+        }
+    }
+    fclose(f);
+}
+
 // --------- mg_init ---------
 
 static void mg_init(void) {
@@ -285,6 +356,9 @@ static void mg_init(void) {
         updateTrayPositionsForLevel(&levels[i], sw, sh);
     }
 
+    // Charger la configuration sauvegardée (après initLevel pour écraser les valeurs par défaut)
+    loadLevelConfig();
+
     currentLevel = 0;
     gameState = STATE_SHOWING_MODEL;
     modelTimer = 0.0f;
@@ -294,7 +368,7 @@ static void mg_init(void) {
     editorMode = false;
     editorSelectedLevel = 0;
     editorSelectedIngredient = 0;
-    gameEndTimer = 0.0f;
+    returnToSalonClicked = false;
 }
 
 // --------- Mode éditeur (simple) ---------
@@ -309,6 +383,8 @@ static void handleEditorToggle(void) {
         if (editorMode) {
             gameState = STATE_EDITOR;
         } else {
+            // Sauvegarder les paramètres quand on quitte l'éditeur
+            saveLevelConfig();
             gameState = STATE_PLAYING;
         }
     }
@@ -322,10 +398,10 @@ static void updateEditor(void) {
     Level* level = &levels[editorSelectedLevel];
     Vector2 mouse = GetMousePosition();
 
-    // changer de niveau avec 1/2/3
-    if (IsKeyPressed(KEY_ONE))  editorSelectedLevel = 0;
-    if (IsKeyPressed(KEY_TWO))  editorSelectedLevel = 1;
-    if (IsKeyPressed(KEY_THREE))editorSelectedLevel = 2;
+    // changer de niveau avec u/i/o
+    if (IsKeyPressed(KEY_U))  editorSelectedLevel = 0;
+    if (IsKeyPressed(KEY_I))  editorSelectedLevel = 1;
+    if (IsKeyPressed(KEY_O))  editorSelectedLevel = 2;
 
     // choisir ingrédient (1..5)
     if (IsKeyPressed(KEY_ONE))  editorSelectedIngredient = 0;
@@ -386,22 +462,21 @@ static void mg_update(float dt) {
     }
 
     if (gameState == STATE_GAME_COMPLETE) {
-        // Gérer l'écran de fin
-        bool won = finalScore >= PASSING_SCORE;
-        UpdateEndScreen(&s_endScreen, won, !won);
-        if (s_endScreen.wantsToReplay) {
-            currentLevel = 0;
-            gameState = STATE_SHOWING_MODEL;
-            modelTimer = 0.0f;
-            levelTimer = 0.0f;
-            draggedIngredient = NULL;
-            finalScore = 0.0f;
-            for (int i = 0; i < MAX_LEVELS; ++i) {
-                levels[i].completed = false;
-                levels[i].score = 0.0f;
-            }
-            s_endScreen.wantsToReplay = false;
-            s_endScreen.wantsToExit = false;
+        // Gestion du clic sur le bouton "Retourner dans le salon"
+        Vector2 mouse = GetMousePosition();
+        int sw = GetScreenWidth();
+        int sh = GetScreenHeight();
+        
+        // Position du bouton
+        int buttonX = sw / 2 - 150;
+        int buttonY = sh - 120;
+        int buttonWidth = 300;
+        int buttonHeight = 50;
+        Rectangle buttonRect = {buttonX, buttonY, buttonWidth, buttonHeight};
+        
+        // Vérifier le clic sur le bouton
+        if (CheckCollisionPointRec(mouse, buttonRect) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            returnToSalonClicked = true;
         }
         return;
     }
@@ -523,8 +598,7 @@ static void mg_update(float dt) {
                 for (int i = 0; i < MAX_LEVELS; ++i) sum += levels[i].score;
                 finalScore = sum / MAX_LEVELS;
                 gameState = STATE_GAME_COMPLETE;
-                s_endScreen.wantsToExit = false;
-                s_endScreen.wantsToReplay = false;
+                returnToSalonClicked = false;
             } else {
                 gameState = STATE_SHOWING_MODEL;
                 modelTimer = 0.0f;
@@ -562,29 +636,30 @@ static void mg_draw(void) {
             float alpha = 1.0f;
             if (progress < 0.2f) alpha = progress / 0.2f;
             else if (progress > 0.8f) alpha = (1.0f - progress) / 0.2f;
+            
+            // S'assurer que l'alpha est à 0 à la fin du timer
+            if (progress >= 1.0f) alpha = 0.0f;
 
-            DrawRectangle(0, 0, sw, sh, (Color){0,0,0,(unsigned char)(180*alpha)});
+            if (alpha > 0.0f) {
+                DrawRectangle(0, 0, sw, sh, (Color){0,0,0,(unsigned char)(180*alpha)});
 
-            float scale = 0.6f;
-            float x = sw / 2.0f - level->modelTexture.width * scale / 2.0f;
-            float y = sh / 2.0f - level->modelTexture.height * scale / 2.0f;
-            DrawTextureEx(level->modelTexture, (Vector2){x,y}, 0, scale,
-                          (Color){255,255,255,(unsigned char)(255*alpha)});
+                float scale = 0.6f;
+                float x = sw / 2.0f - level->modelTexture.width * scale / 2.0f;
+                float y = sh / 2.0f - level->modelTexture.height * scale / 2.0f;
+                DrawTextureEx(level->modelTexture, (Vector2){x,y}, 0, scale,
+                              (Color){255,255,255,(unsigned char)(255*alpha)});
+            }
         }
 
-        DrawText("Observez le modele...", sw/2 - 150, 50, 30, WHITE);
-        DrawText(TextFormat("%.1f", MODEL_DISPLAY_TIME - modelTimer),
-                 sw/2 - 20, 100, 40, YELLOW);
+        if (modelTimer < MODEL_DISPLAY_TIME) {
+            DrawText("Observez le modele...", sw/2 - 150, 50, 30, WHITE);
+            DrawText(TextFormat("%.1f", MODEL_DISPLAY_TIME - modelTimer),
+                     sw/2 - 20, 100, 40, YELLOW);
+        }
         return;
     }
 
-    // Gâteau
-    if (level->cakeBaseTexture.id != 0) {
-        float scale = 0.6f;
-        float x = cakeCenter.x - level->cakeBaseTexture.width * scale / 2.0f;
-        float y = cakeCenter.y - level->cakeBaseTexture.height * scale / 2.0f;
-        DrawTextureEx(level->cakeBaseTexture, (Vector2){x, y}, 0.0f, scale, WHITE);
-    }
+    // Gâteau de base - ne pas afficher (on ne veut que le fond)
 
     // Ingrédients posés
     for (int i = 0; i < level->ingredientCount; ++i) {
@@ -670,9 +745,59 @@ static void mg_draw(void) {
 
     // Écran final
     if (gameState == STATE_GAME_COMPLETE) {
-        bool won = finalScore >= PASSING_SCORE;
-        int coins = (int)(finalScore / 10.0f);
-        DrawEndScreen(won, !won, coins);
+        DrawRectangle(0,0,sw,sh,(Color){0,0,0,220});
+        DrawText("JEU TERMINE!", sw/2 - 150, 80, 40, WHITE);
+
+        int y = 160;
+        for (int i = 0; i < MAX_LEVELS; ++i) {
+            DrawText(TextFormat("Niveau %d: %.1f%%", i+1, levels[i].score),
+                     sw/2 - 150, y, 24, LIGHTGRAY);
+            y += 40;
+        }
+
+        DrawText(TextFormat("Moyenne finale: %.1f%%", finalScore),
+                 sw/2 - 150, y+40, 36, YELLOW);
+
+        // Calcul des pièces gagnées
+        int coinsWon = 0;
+        if (finalScore >= 100.0f) coinsWon = 5;
+        else if (finalScore >= 90.0f) coinsWon = 4;
+        else if (finalScore >= 80.0f) coinsWon = 3;
+        else if (finalScore >= 70.0f) coinsWon = 2;
+        else if (finalScore >= 60.0f) coinsWon = 1;
+
+        if (finalScore >= PASSING_SCORE) {
+            DrawText("JEU VALIDE / REUSSI!", sw/2 - 200, y+100, 30, GREEN);
+            if (coinsWon > 0) {
+                DrawText(TextFormat("Pieces gagnees: %d", coinsWon),
+                         sw/2 - 120, y+140, 24, YELLOW);
+            }
+        } else {
+            DrawText("Jeu non valide. Recommencez depuis le niveau 1.",
+                     sw/2 - 300, y+100, 24, RED);
+            DrawText("Appuyez sur R pour recommencer",
+                     sw/2 - 200, y+140, 20, WHITE);
+        }
+
+        // Bouton "Retourner dans le salon"
+        int buttonX = sw / 2 - 150;
+        int buttonY = sh - 120;
+        int buttonWidth = 300;
+        int buttonHeight = 50;
+        Vector2 mouse = GetMousePosition();
+        Rectangle buttonRect = {buttonX, buttonY, buttonWidth, buttonHeight};
+        
+        Color buttonColor = CheckCollisionPointRec(mouse, buttonRect) ? 
+                           (Color){100, 150, 200, 255} : (Color){80, 120, 160, 255};
+        
+        DrawRectangleRounded(buttonRect, 0.3f, 8, buttonColor);
+        DrawRectangleRoundedLines(buttonRect, 0.3f, 8, WHITE);
+        
+        int textWidth = MeasureText("Retourner dans le salon", 24);
+        DrawText("Retourner dans le salon", 
+                 buttonX + (buttonWidth - textWidth) / 2,
+                 buttonY + (buttonHeight - 24) / 2,
+                 24, WHITE);
     }
 
     // Éditeur
@@ -685,7 +810,7 @@ static void mg_draw(void) {
                  40, 60, 18, WHITE);
         DrawText("Clic gauche dans le cercle = déplacer la cible de l'ingredient choisi",
                  40, 80, 18, WHITE);
-        DrawText("1/2/3 = niveau, 1..5 = ingredient cible",
+        DrawText("u/i/o = niveau, 1..5 = ingredient cible",
                  40, 100, 18, WHITE);
 
         DrawText(TextFormat("Niveau: %d", editorSelectedLevel+1), 40, 130, 18, WHITE);
@@ -729,9 +854,37 @@ static void mg_unload(void) {
 
 static bool mg_isCompleted(int *coinsOut) {
     if (gameState == STATE_GAME_COMPLETE) {
-        if (coinsOut) *coinsOut = (int)(finalScore / 10.0f);
-        // Ne signaler la fin que si l'utilisateur veut quitter
-        return s_endScreen.wantsToExit;
+        // Calcul des pièces selon le système : 60%=1, 70%=2, 80%=3, 90%=4, 100%=5
+        int coinsWon = 0;
+        if (finalScore >= 100.0f) coinsWon = 5;
+        else if (finalScore >= 90.0f) coinsWon = 4;
+        else if (finalScore >= 80.0f) coinsWon = 3;
+        else if (finalScore >= 70.0f) coinsWon = 2;
+        else if (finalScore >= 60.0f) coinsWon = 1;
+
+        if (coinsOut) *coinsOut = coinsWon;
+
+        // R pour recommencer si raté
+        if (IsKeyPressed(KEY_R) && finalScore < PASSING_SCORE) {
+            currentLevel = 0;
+            gameState = STATE_SHOWING_MODEL;
+            modelTimer = 0.0f;
+            levelTimer = 0.0f;
+            draggedIngredient = NULL;
+            finalScore = 0.0f;
+            for (int i = 0; i < MAX_LEVELS; ++i) {
+                levels[i].completed = false;
+                levels[i].score = 0.0f;
+            }
+            returnToSalonClicked = false;
+            return false;
+        }
+
+        // On ne signale la complétion au hub que si l'utilisateur a cliqué sur le bouton
+        if (returnToSalonClicked) {
+            return true;
+        }
+        return false;
     }
     return false;
 }
