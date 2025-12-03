@@ -834,18 +834,94 @@ int main(int argc, char **argv) {
                 drawCoinCounter(&g);
                 drawDebugOverlay(&g);
             } break;
-            case STATE_ZONE_JARDIN:
-                drawCentered("Jardin — Entrée: Mini‑jeu | Retour: Backspace", 160, 26, RAYWHITE);
-                break;
-            case STATE_ZONE_CHAMBRE:
-                drawCentered("Puzzle — Entrée: Mini‑jeu | Retour: Backspace", 160, 26, RAYWHITE);
-                break;
-            case STATE_ZONE_GRENIER:
-                drawCentered("Bibliothèque — Entrée: Mini‑jeu | Retour: Backspace", 160, 26, RAYWHITE);
-                break;
-            case STATE_ZONE_CUISINE:
-                drawCentered("Cuisine — Entrée: Mini‑jeu | Retour: Backspace", 160, 26, RAYWHITE);
-                break;
+            case STATE_ZONE_JARDIN: {
+                int y = 80;
+                int fontSize = 32;
+                int lineHeight = 42;
+                Color textColor = RAYWHITE;
+                
+                drawCentered("Bienvenue dans l'aventure de Gros Nounours.", y, fontSize, textColor);
+                y += lineHeight * 2;
+                drawCentered("Ton but est d'aider Gros Nounours a atteindre la fin du chemin.", y, fontSize, textColor);
+                y += lineHeight * 2;
+                drawCentered("Pour le deplacer, utilise les fleches de ton clavier : vers la droite, la gauche, l'avant ou l'arriere.", y, fontSize - 2, textColor);
+                y += lineHeight * 2;
+                drawCentered("Attention tout de meme aux troncs d'arbre qui bloquent le passage.", y, fontSize - 2, textColor);
+                y += lineHeight;
+                drawCentered("Si Gros Nounours en touche un, il perd une vie.", y, fontSize - 2, textColor);
+                y += lineHeight;
+                drawCentered("Tu as 3 vies pour reussir le parcours.", y, fontSize, textColor);
+                y += lineHeight * 2;
+                drawCentered("Es-tu pret a guider Gros Nounours jusqu'au bout de son aventure ?", y, fontSize, textColor);
+                y += lineHeight * 2;
+                drawCentered("Clique sur le bouton Entree pour commencer a jouer.", y, fontSize, (Color){255, 255, 100, 255});
+            } break;
+            case STATE_ZONE_CHAMBRE: {
+                int y = 80;
+                int fontSize = 32;
+                int lineHeight = 42;
+                Color textColor = RAYWHITE;
+                
+                drawCentered("Bienvenue dans le jeu du puzzle.", y, fontSize, textColor);
+                y += lineHeight * 2;
+                drawCentered("Ton objectif est de remettre toutes les pieces a leur bonne place pour reformer l'image.", y, fontSize, textColor);
+                y += lineHeight * 2;
+                drawCentered("Pour jouer, c'est tres simple : clique sur une piece du puzzle pour la deplacer.", y, fontSize, textColor);
+                y += lineHeight * 2;
+                drawCentered("Pret a reconstruire le puzzle comme un vrai champion ?", y, fontSize, textColor);
+                y += lineHeight * 2;
+                drawCentered("Clique sur le bouton Entree pour commencer a jouer.", y, fontSize, (Color){255, 255, 100, 255});
+            } break;
+            case STATE_ZONE_GRENIER: {
+                int y = 80;
+                int fontSize = 32;
+                int lineHeight = 42;
+                Color textColor = RAYWHITE;
+                
+                drawCentered("Bienvenue dans le jeu du mot mystere.", y, fontSize, textColor);
+                y += lineHeight * 2;
+                drawCentered("Ton defi est de deviner le mot cache.", y, fontSize, textColor);
+                y += lineHeight * 2;
+                drawCentered("Pour jouer, c'est tres simple :", y, fontSize, textColor);
+                y += lineHeight * 2;
+                drawCentered("Tu peux taper une lettre sur ton clavier ou cliquer sur une lettre de l'alphabet.", y, fontSize - 2, textColor);
+                y += lineHeight * 2;
+                drawCentered("Tu as 7 chances pour trouver le mot.", y, fontSize, textColor);
+                y += lineHeight;
+                drawCentered("Mais attention, a chaque erreur, la fleur perd une petale.", y, fontSize - 2, textColor);
+                y += lineHeight;
+                drawCentered("Quand il n'y en a plus, la partie est terminee.", y, fontSize - 2, textColor);
+                y += lineHeight * 2;
+                drawCentered("Si tu fais 5 erreurs, une definition secrete apparait pour t'aider a deviner le mot.", y, fontSize - 2, textColor);
+                y += lineHeight;
+                drawCentered("Et si tu reussis a trouver le mot, tu pourras aussi lire sa definition pour apprendre de nouvelles choses.", y, fontSize - 2, textColor);
+                y += lineHeight * 2;
+                drawCentered("Pret pour l'aventure des mots ?", y, fontSize, textColor);
+                y += lineHeight * 2;
+                drawCentered("Appuie sur la touche Entree pour commencer a jouer.", y, fontSize, (Color){255, 255, 100, 255});
+            } break;
+            case STATE_ZONE_CUISINE: {
+                int y = 80;
+                int fontSize = 32;
+                int lineHeight = 42;
+                Color textColor = RAYWHITE;
+                
+                drawCentered("Bienvenue dans l'atelier des gateaux gourmands.", y, fontSize, textColor);
+                y += lineHeight * 2;
+                drawCentered("Tu vas devoir decorer un gateau comme un vrai patissier.", y, fontSize, textColor);
+                y += lineHeight * 2;
+                drawCentered("Au debut, tu verras une image pendant quelques secondes. Regarde-la bien et essaie de tout retenir.", y, fontSize - 2, textColor);
+                y += lineHeight;
+                drawCentered("Ton but est de refaire exactement le meme gateau pour gagner.", y, fontSize, textColor);
+                y += lineHeight * 2;
+                drawCentered("Prends les ingredients et pose-les sur le gateau au bon endroit.", y, fontSize, textColor);
+                y += lineHeight;
+                drawCentered("Si tu as termine avant la fin du chrono, clique sur le bouton Termine.", y, fontSize - 2, textColor);
+                y += lineHeight * 2;
+                drawCentered("Pret a creer le gateau parfait ?", y, fontSize, textColor);
+                y += lineHeight * 2;
+                drawCentered("Clique sur le bouton Entree pour commencer a jouer.", y, fontSize, (Color){255, 255, 100, 255});
+            } break;
             case STATE_SHOP:
                 // Synchroniser les données avant l'affichage
                 for (int i = 0; i < 5; ++i) {

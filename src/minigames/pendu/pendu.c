@@ -234,7 +234,6 @@ static void draw_game(void) {
         ClearBackground(RAYWHITE);
     }
     
-    DrawText("PENDU", GetScreenWidth()/2 - 50, 30, 40, BLACK);
     
     // Fleur avec 7 pétales
     int flowerX = GetScreenWidth()/2 - 400, flowerY = 400;

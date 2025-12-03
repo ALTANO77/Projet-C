@@ -57,12 +57,12 @@ void Boutique_Init(BoutiqueData *data) {
         "assets/boutique/tenue_maillot.png"
     };
     
-    // Prix des tenues (0 pour les tests)
-    data->outfitPrices[0] = 0;
-    data->outfitPrices[1] = 0;
-    data->outfitPrices[2] = 0;
-    data->outfitPrices[3] = 0;
-    data->outfitPrices[4] = 0;
+    // Prix des tenues
+    data->outfitPrices[0] = 15; // Noël
+    data->outfitPrices[1] = 20; // Aviateur
+    data->outfitPrices[2] = 15; // Plage
+    data->outfitPrices[3] = 20; // Vampire
+    data->outfitPrices[4] = 15; // Maillot
     
     // Charger les textures
     for (int i = 0; i < 5; ++i) {
@@ -113,7 +113,7 @@ void Boutique_Update(BoutiqueData *data) {
 void Boutique_Draw(BoutiqueData *data) {
     DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), (Color){ 245, 245, 245, 255 });
     drawCentered("Boutique d'habits", 100, 56, (Color){ 50, 50, 80, 255 });
-    drawCentered("Cliquez pour acheter | Cliquez sur une tenue achetée pour la porter | Backspace pour revenir", 160, 26, (Color){ 90, 90, 90, 255 });
+    drawCentered("Si tu as assez d'argent tu peux t'acheter une tenue !", 160, 26, (Color){ 90, 90, 90, 255 });
     
     // Afficher le compteur de pièces
     drawCoinCounter(*data->collectibles);
@@ -127,10 +127,12 @@ void Boutique_Draw(BoutiqueData *data) {
     Vector2 mouse = GetMousePosition();
     
     for (int i = 0; i < 5; ++i) {
+        // Rendre la tenue de Noël (index 0) un peu plus large
+        float currentWidth = (i == 0) ? outfitSize * 1.15f : outfitSize;
         Rectangle outfitRect = {
             startX + i * spacing,
             startY,
-            outfitSize,
+            currentWidth,
             outfitSize
         };
         
