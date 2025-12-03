@@ -107,6 +107,7 @@ static void resetTraffic(void) {
     coinCount = 0; coinSpawnTimer = 0.0f; collectedCoins = 0;
     completionMessageTimer = 0.0f;
     gameLost = false;
+    levelCompleted = false;
     s_endScreen.wantsToExit = false;
     s_endScreen.wantsToReplay = false;
 }
@@ -197,8 +198,10 @@ static void mg_update(float dt) {
             resetTraffic();
             s_endScreen.wantsToReplay = false;
             s_endScreen.wantsToExit = false;
+            // Ne pas return ici, continuer pour permettre de jouer
+        } else {
+            return; // Ne pas permettre de jouer si on ne rejoue pas
         }
-        return;
     }
 
     // Déplacement continu sur deux axes (X et Y)

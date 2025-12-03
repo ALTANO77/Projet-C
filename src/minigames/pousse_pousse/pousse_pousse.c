@@ -200,13 +200,16 @@ static void PoussePousse_Update(float dt) {
     if (s_finished) {
         UpdateEndScreen(&s_endScreen, true, false);
         if (s_endScreen.wantsToReplay) {
+            // Réinitialiser complètement le jeu
             init_random_board(&s_board);
             s_finished = false;
             s_moveCount = 0;
             s_endScreen.wantsToReplay = false;
             s_endScreen.wantsToExit = false;
+            // Ne pas return ici, continuer pour permettre de jouer
+        } else {
+            return; // Ne pas permettre de jouer si on ne rejoue pas
         }
-        return;
     }
 
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
