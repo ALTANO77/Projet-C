@@ -74,7 +74,8 @@ static void update_game(float dt) {
         if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
             Vector2 m = GetMousePosition();
             int cx = GetScreenWidth()/2;
-            int by = GetScreenHeight()/2 + 100;
+            int cy = GetScreenHeight()/2;
+            int by = cy + 50; // Même coordonnée que dans draw_game
             
             // Bouton Rejouer
             Rectangle replayBtn = {cx - 120, by, 100, 40};
@@ -224,11 +225,11 @@ static void draw_game(void) {
     if (errors >= 5 || won) {
         const char *def = isHardWord ? DEFS_5[currentWordIndex] : DEFS_2[currentWordIndex];
         int defX = 20;
-        int defY = 200;
-        int defW = 300;
-        int defH = 250;
-        int fontSize = 16;
-        int lineHeight = 22;
+        int defY = 150;
+        int defW = 400;
+        int defH = 350;
+        int fontSize = 20;
+        int lineHeight = 26;
         int maxWidth = defW - 20;
         
         // Fond pour la définition à gauche
@@ -238,7 +239,7 @@ static void draw_game(void) {
         // Titre
         DrawText("Definition:", defX + 10, defY + 10, 22, DARKBLUE);
         
-        // Définition sur plusieurs lignes
+        // Définition sur plusieurs lignes avec meilleur découpage
         int x = defX + 10;
         int y = defY + 40;
         const char *text = def;
@@ -246,60 +247,74 @@ static void draw_game(void) {
         int currentPos = 0;
         
         while (currentPos < textLen && y < defY + defH - 20) {
-            // Trouver la position de la prochaine coupure (espace ou fin de ligne)
-            int lineEnd = currentPos;
+            // Trouver la meilleure position de coupure
+            int bestBreak = currentPos;
             int lineWidth = 0;
+            int lastSpace = -1;
             
-            // Chercher le prochain espace qui dépasse la largeur
-            while (lineEnd < textLen && text[lineEnd] != '\0') {
-                char testChar = text[lineEnd];
-                int charWidth = MeasureText(&testChar, fontSize);
+            // Parcourir le texte jusqu'à dépasser la largeur
+            for (int i = currentPos; i < textLen; i++) {
+                if (text[i] == ' ') lastSpace = i;
                 
-                if (lineWidth + charWidth > maxWidth && lineEnd > currentPos) {
-                    // Revenir en arrière pour trouver le dernier espace
-                    int spacePos = lineEnd;
-                    while (spacePos > currentPos && text[spacePos] != ' ') spacePos--;
-                    if (spacePos > currentPos) lineEnd = spacePos + 1;
+                // Mesurer la largeur jusqu'à cette position
+                char temp[200];
+                int len = i - currentPos + 1;
+                if (len > 199) len = 199;
+                strncpy(temp, text + currentPos, len);
+                temp[len] = '\0';
+                int width = MeasureText(temp, fontSize);
+                
+                if (width > maxWidth) {
+                    // Si on a trouvé un espace avant, couper là
+                    if (lastSpace > currentPos) {
+                        bestBreak = lastSpace + 1;
+                    } else {
+                        // Sinon, couper à la position actuelle
+                        bestBreak = i;
+                    }
                     break;
                 }
                 
-                lineWidth += charWidth;
-                lineEnd++;
-                if (text[lineEnd - 1] == ' ' || text[lineEnd - 1] == '\0') break;
+                if (i == textLen - 1) {
+                    // Fin du texte
+                    bestBreak = textLen;
+                }
             }
             
             // Afficher la ligne
-            char line[200];
-            int lineLen = lineEnd - currentPos;
-            if (lineLen > 199) lineLen = 199;
-            strncpy(line, text + currentPos, lineLen);
-            line[lineLen] = '\0';
-            DrawText(line, x, y, fontSize, BLACK);
+            int lineLen = bestBreak - currentPos;
+            if (lineLen > 0) {
+                char line[300];
+                if (lineLen > 299) lineLen = 299;
+                strncpy(line, text + currentPos, lineLen);
+                line[lineLen] = '\0';
+                // Enlever l'espace en fin de ligne si présent
+                if (lineLen > 0 && line[lineLen - 1] == ' ') line[lineLen - 1] = '\0';
+                DrawText(line, x, y, fontSize, BLACK);
+                y += lineHeight;
+            }
             
-            y += lineHeight;
-            currentPos = lineEnd;
+            currentPos = bestBreak;
             // Passer les espaces en début de ligne suivante
             while (currentPos < textLen && text[currentPos] == ' ') currentPos++;
         }
     }
     
-    // Rectangle modal pour les boutons de fin
+    // Rectangle modal pour les boutons de fin (sans assombrir le reste)
     if (won || lost) {
         int cx = GetScreenWidth()/2;
         int cy = GetScreenHeight()/2;
-        int modalW = 400;
-        int modalH = 200;
+        int modalW = 450;
+        int modalH = 220;
         Rectangle modal = {cx - modalW/2, cy - modalH/2, modalW, modalH};
         
-        // Fond semi-transparent
-        DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), (Color){0, 0, 0, 180});
-        
-        // Rectangle modal
-        DrawRectangleRec(modal, (Color){240, 240, 240, 255});
-        DrawRectangleLinesEx(modal, 3, (Color){100, 100, 100, 255});
+        // Rectangle modal avec ombre légère (pas de fond noir qui assombrit)
+        DrawRectangle(cx - modalW/2 + 3, cy - modalH/2 + 3, modalW, modalH, (Color){0, 0, 0, 50});
+        DrawRectangleRec(modal, (Color){250, 250, 250, 255});
+        DrawRectangleLinesEx(modal, 4, (Color){80, 80, 80, 255});
         
         int msgY = cy - 60;
-        int by = cy + 40;
+        int by = cy + 50;
         
         if (won) {
             char msg[50];
@@ -314,7 +329,7 @@ static void draw_game(void) {
             DrawText(wordMsg, cx - MeasureText(wordMsg, 24)/2, msgY + 45, 24, DARKGRAY);
         }
         
-        // Boutons
+        // Boutons (mêmes coordonnées que dans update_game)
         Rectangle replayBtn = {cx - 120, by, 100, 40};
         Rectangle backBtn = {cx + 20, by, 100, 40};
         Vector2 m = GetMousePosition();
