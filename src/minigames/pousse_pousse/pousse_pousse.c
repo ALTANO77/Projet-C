@@ -1,4 +1,5 @@
 #include "pousse_pousse.h"
+#include "minigame_end_screen.h"
 #include "raylib.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -133,6 +134,7 @@ static Texture2D s_bgTexture;            // la texture de fond
 static bool      s_bgLoaded = false;     // est-ce qu'on l'a chargée ?
 // Timer pour garder l'écran de victoire visible avant retour au menu
 static float     s_endTimer = 0.0f;
+static EndScreenState s_endScreen = {0};
 
 // calcule la taille et la position du plateau en fonction de la fenêtre
 static void GetBoardLayout(int *tileSize, int *offsetX, int *offsetY) {
@@ -156,6 +158,8 @@ static void PoussePousse_Init(void) {
     s_initialized = true;
     s_moveCount = 0;   // on remet le compteur à zéro
     s_endTimer = 0.0f;
+    s_endScreen.wantsToExit = false;
+    s_endScreen.wantsToReplay = false;
     
     // Charger les 15 images si pas déjà fait
     if (!s_tilesLoaded) {
@@ -192,13 +196,15 @@ static void PoussePousse_Init(void) {
 static void PoussePousse_Update(float dt) {
     if (!s_initialized) return;
 
-    // Si le puzzle est terminé, on laisse l'écran de victoire affiché quelques secondes
+    // Si le puzzle est terminé, gérer l'écran de fin
     if (s_finished) {
-        if (s_endTimer <= 0.0f) {
-            s_endTimer = 3.0f;
-        } else {
-            s_endTimer -= dt;
-            if (s_endTimer < 0.0f) s_endTimer = 0.0f;
+        UpdateEndScreen(&s_endScreen, true, false);
+        if (s_endScreen.wantsToReplay) {
+            init_random_board(&s_board);
+            s_finished = false;
+            s_moveCount = 0;
+            s_endScreen.wantsToReplay = false;
+            s_endScreen.wantsToExit = false;
         }
         return;
     }
@@ -291,10 +297,9 @@ static void PoussePousse_Draw(void) {
         }
     }
 
-    // Message de victoire
+    // Écran de fin
     if (s_finished) {
-        DrawText("Bravo ! Puzzle resolu : tu as gagne 1 piece.",
-                 60, GetScreenHeight() - 80, 24, (Color){ 120, 230, 140, 255 });
+        DrawEndScreen(true, false, 15);
     }
 }
 
@@ -311,9 +316,9 @@ static void PoussePousse_Unload(void) {
 
 // renvoie true quand le mini-jeu est termine, et indique le nombre de pieces
 static bool PoussePousse_IsCompleted(int *coins) {
-    // Ne signaler la fin qu'après l'affichage de l'écran de victoire
-    if (!s_finished || s_endTimer > 0.0f) return false;
-    if (coins) *coins = 1;   // récompense : 1 pièce
+    // Ne signaler la fin que si l'utilisateur veut quitter
+    if (!s_finished || !s_endScreen.wantsToExit) return false;
+    if (coins) *coins = 15;   // récompense : 15 pièces
     return true;
 }
 

@@ -828,7 +828,18 @@ int main(int argc, char **argv) {
                     if (g.currentMinigame.isCompleted) {
                         int coins = 0;
                         if (g.currentMinigame.isCompleted(&coins)) {
-                            triggerMinigamePopup(&g, coins);
+                            // Ne pas déclencher le popup si le minijeu gère déjà sa propre fin
+                            // (comme le pendu qui affiche son propre écran de fin)
+                            // On finalise directement le minijeu
+                            g.collectibles += coins;
+                            if (g.activeZone >= 0 && g.activeZone < ZONE_COUNT) {
+                                g.progress[g.activeZone].completed = true;
+                            }
+                            if (g.currentMinigame.unload) g.currentMinigame.unload();
+                            g.currentMinigame = (MinigameAPI){0};
+                            g.currentMinigameName = NULL;
+                            g.state = STATE_HUB;
+                            g.activeZone = ZONE_NONE;
                         }
                     }
                 } else {
@@ -886,7 +897,8 @@ int main(int argc, char **argv) {
                 break;
             case STATE_MINIJEU:
                 if (g.currentMinigame.draw) g.currentMinigame.draw();
-                if (g.showCompletionPopup) drawCompletionPopup(&g);
+                // Les minijeux gèrent maintenant leur propre écran de fin (comme le pendu)
+                // Plus besoin du popup générique
                 break;
             default: break;
         }

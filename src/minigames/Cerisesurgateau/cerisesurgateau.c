@@ -8,6 +8,7 @@
 // - mode éditeur simple (Ctrl+F2) pour déplacer le cercle et les positions cibles
 
 #include "cerisesurgateau.h"
+#include "minigame_end_screen.h"
 #include "raylib.h"
 #include <math.h>
 #include <stdbool.h>
@@ -93,6 +94,7 @@ static int editorSelectedIngredient = 0;
 
 // Timer d'écran de fin (avant retour au menu principal)
 static float gameEndTimer = 0.0f;
+static EndScreenState s_endScreen = {0};
 
 // --------- Helpers ---------
 
@@ -384,10 +386,22 @@ static void mg_update(float dt) {
     }
 
     if (gameState == STATE_GAME_COMPLETE) {
-        // Compte à rebours de l'écran final avant de signaler la fin au hub
-        if (gameEndTimer > 0.0f) {
-            gameEndTimer -= dt;
-            if (gameEndTimer < 0.0f) gameEndTimer = 0.0f;
+        // Gérer l'écran de fin
+        bool won = finalScore >= PASSING_SCORE;
+        UpdateEndScreen(&s_endScreen, won, !won);
+        if (s_endScreen.wantsToReplay) {
+            currentLevel = 0;
+            gameState = STATE_SHOWING_MODEL;
+            modelTimer = 0.0f;
+            levelTimer = 0.0f;
+            draggedIngredient = NULL;
+            finalScore = 0.0f;
+            for (int i = 0; i < MAX_LEVELS; ++i) {
+                levels[i].completed = false;
+                levels[i].score = 0.0f;
+            }
+            s_endScreen.wantsToReplay = false;
+            s_endScreen.wantsToExit = false;
         }
         return;
     }
@@ -509,7 +523,8 @@ static void mg_update(float dt) {
                 for (int i = 0; i < MAX_LEVELS; ++i) sum += levels[i].score;
                 finalScore = sum / MAX_LEVELS;
                 gameState = STATE_GAME_COMPLETE;
-                gameEndTimer = 3.0f; // 3 secondes d'écran final avant retour menu
+                s_endScreen.wantsToExit = false;
+                s_endScreen.wantsToReplay = false;
             } else {
                 gameState = STATE_SHOWING_MODEL;
                 modelTimer = 0.0f;
@@ -655,28 +670,9 @@ static void mg_draw(void) {
 
     // Écran final
     if (gameState == STATE_GAME_COMPLETE) {
-        DrawRectangle(0,0,sw,sh,(Color){0,0,0,220});
-        DrawText("JEU TERMINE!", sw/2 - 150, 80, 40, WHITE);
-
-        int y = 160;
-        for (int i = 0; i < MAX_LEVELS; ++i) {
-            DrawText(TextFormat("Niveau %d: %.1f%%", i+1, levels[i].score),
-                     sw/2 - 150, y, 24, LIGHTGRAY);
-            y += 40;
-        }
-
-        DrawText(TextFormat("Moyenne finale: %.1f%%", finalScore),
-                 sw/2 - 150, y+40, 36, YELLOW);
-
-        if (finalScore >= PASSING_SCORE) {
-            DrawText("JEU VALIDE / REUSSI!", sw/2 - 200, y+100, 30, GREEN);
-        } else {
-            DrawText("Jeu non valide. Recommencez depuis le niveau 1.",
-                     sw/2 - 300, y+100, 24, RED);
-            DrawText("Appuyez sur R pour recommencer",
-                     sw/2 - 200, y+140, 20, WHITE);
-        }
-        DrawText("BACKSPACE pour quitter", sw/2 - 150, sh-80, 20, LIGHTGRAY);
+        bool won = finalScore >= PASSING_SCORE;
+        int coins = (int)(finalScore / 10.0f);
+        DrawEndScreen(won, !won, coins);
     }
 
     // Éditeur
@@ -734,28 +730,8 @@ static void mg_unload(void) {
 static bool mg_isCompleted(int *coinsOut) {
     if (gameState == STATE_GAME_COMPLETE) {
         if (coinsOut) *coinsOut = (int)(finalScore / 10.0f);
-
-        // R pour recommencer si raté, tant que l'écran final est affiché
-        if (IsKeyPressed(KEY_R) && finalScore < PASSING_SCORE && gameEndTimer > 0.0f) {
-            currentLevel = 0;
-            gameState = STATE_SHOWING_MODEL;
-            modelTimer = 0.0f;
-            levelTimer = 0.0f;
-            draggedIngredient = NULL;
-            finalScore = 0.0f;
-            for (int i = 0; i < MAX_LEVELS; ++i) {
-                levels[i].completed = false;
-                levels[i].score = 0.0f;
-            }
-            gameEndTimer = 0.0f;
-            return false;
-        }
-
-        // On ne signale la complétion au hub qu'une fois le timer écoulé
-        if (gameEndTimer <= 0.0f) {
-            return true;
-        }
-        return false;
+        // Ne signaler la fin que si l'utilisateur veut quitter
+        return s_endScreen.wantsToExit;
     }
     return false;
 }

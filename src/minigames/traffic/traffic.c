@@ -1,5 +1,6 @@
 // Traffic runner avancé (textures, pièces, distance, complétion)
 #include "traffic.h"
+#include "minigame_end_screen.h"
 #include <stdbool.h>
 #include <math.h>
 
@@ -18,6 +19,8 @@ static float maxSpeedPx   = 1200.0f; // > 15 m/s (1200/48 = 25 m/s)
 static float goalMeters   = 1000.0f;
 static bool levelCompleted;
 static float completionMessageTimer;
+static bool gameLost;
+static EndScreenState s_endScreen = {0};
 
 // Textures
 static Texture2D texPlayer; // fallback single frame
@@ -103,6 +106,9 @@ static void resetTraffic(void) {
     distancePixels = 0.0f;
     coinCount = 0; coinSpawnTimer = 0.0f; collectedCoins = 0;
     completionMessageTimer = 0.0f;
+    gameLost = false;
+    s_endScreen.wantsToExit = false;
+    s_endScreen.wantsToReplay = false;
 }
 
 static bool intersect(const RectF *a, const RectF *b) {
@@ -180,14 +186,18 @@ static void mg_init(void) {
 }
 
 static void mg_update(float dt) {
-    if (lives <= 0) {
-        if (IsKeyPressed(KEY_R)) resetTraffic();
-        return;
+    if (lives <= 0 && !gameLost) {
+        gameLost = true;
     }
-
-    if (levelCompleted && completionMessageTimer > 0.0f) {
-        completionMessageTimer -= dt;
-        if (completionMessageTimer < 0.0f) completionMessageTimer = 0.0f;
+    
+    if (gameLost || levelCompleted) {
+        bool won = levelCompleted;
+        UpdateEndScreen(&s_endScreen, won, !won);
+        if (s_endScreen.wantsToReplay) {
+            resetTraffic();
+            s_endScreen.wantsToReplay = false;
+            s_endScreen.wantsToExit = false;
+        }
         return;
     }
 
@@ -253,10 +263,18 @@ static void mg_update(float dt) {
     }
 
     // Check level completion
-    if (!levelCompleted) {
+    if (!levelCompleted && !gameLost) {
         float meters = distancePixels / pixelsPerMeter;
-        if (meters >= goalMeters) levelCompleted = true;
-        if (levelCompleted) completionMessageTimer = 3.0f;
+        if (meters >= goalMeters) {
+            levelCompleted = true;
+            s_endScreen.wantsToExit = false;
+            s_endScreen.wantsToReplay = false;
+        }
+    }
+    
+    // Check game over
+    if (lives <= 0 && !gameLost) {
+        gameLost = true;
     }
 }
 
@@ -339,15 +357,10 @@ static void mg_draw(void) {
         DrawText(hud, x+1, y+1, fontSize, (Color){20,20,20,180});
         DrawText(hud, x,   y,   fontSize, (Color){255, 240, 160, 255});
     }
-    if (lives <= 0) DrawText("Oups! Tu as perdu. Appuie sur R pour rejouer.", 20, 60, 24, (Color){255,230,120,255});
-    if (levelCompleted && completionMessageTimer > 0.0f) {
-        const char *msg = "Felicitation vous avez reussi ce mini jeu";
-        int fontSize = 36;
-        int textWidth = MeasureText(msg, fontSize);
-        int x = (GetScreenWidth() - textWidth) / 2;
-        int y = GetScreenHeight() / 2 - fontSize;
-        DrawText(msg, x+2, y+2, fontSize, (Color){20,20,20,200});
-        DrawText(msg, x, y, fontSize, (Color){255,255,200,255});
+    // Écran de fin
+    if (gameLost || levelCompleted) {
+        bool won = levelCompleted;
+        DrawEndScreen(won, !won, won ? collectedCoins : 0);
     }
 }
 
@@ -363,9 +376,12 @@ static void mg_unload(void) {
 }
 
 static bool mg_isCompleted(int *coinsOut) {
-    if (coinsOut) *coinsOut = collectedCoins;
-    // Ne signaler la fin qu'une fois l'écran de félicitations écoulé
-    return levelCompleted && completionMessageTimer <= 0.0f;
+    if (gameLost || levelCompleted) {
+        if (coinsOut) *coinsOut = levelCompleted ? collectedCoins : 0;
+        // Ne signaler la fin que si l'utilisateur veut quitter
+        return s_endScreen.wantsToExit;
+    }
+    return false;
 }
 
 MinigameAPI GetMinigameTraffic(void) {
