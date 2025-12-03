@@ -189,17 +189,7 @@ static void prepareMinigameSession(Game *g, MinigameAPI api, const char *prettyN
     g->state = STATE_MINIJEU;
 }
 
-static void triggerMinigamePopup(Game *g, int coins) {
-    if (g->minigameCompleted) return;
-    g->pendingCoinsReward = coins;
-    g->minigameCompleted = true;
-    g->showCompletionPopup = true;
-    g->completionPopupTimer = 0.0f;
-    g->completionPopupDuration = MINIGAME_POPUP_DURATION;
-    const char *name = g->currentMinigameName ? g->currentMinigameName : "ce mini-jeu";
-    snprintf(g->completionPopupText, sizeof(g->completionPopupText),
-             "Bravo vous avez réussi le jeu \"%s\" !", name);
-}
+// Fonction supprimée - les minijeux gèrent maintenant leur propre écran de fin
 
 static void finalizeMinigame(Game *g) {
     g->collectibles += g->pendingCoinsReward;
@@ -354,36 +344,7 @@ static void drawCoinCounter(const Game *g) {
     DrawText(label, (int)(box.x + padding), (int)(box.y + 12), fontSize, GOLD);
 }
 
-static void drawCompletionPopup(const Game *g) {
-    if (!g->showCompletionPopup) return;
-    float sw = (float)GetScreenWidth();
-    float sh = (float)GetScreenHeight();
-    DrawRectangle(0, 0, (int)sw, (int)sh, (Color){ 0, 0, 0, 160 });
-
-    Rectangle box = {
-        sw * 0.2f,
-        sh * 0.3f,
-        sw * 0.6f,
-        sh * 0.4f
-    };
-    DrawRectangleRounded(box, 0.1f, 10, (Color){ 245, 245, 245, 245 });
-    DrawRectangleRoundedLines(box, 0.1f, 10, (Color){ 90, 90, 90, 255 });
-
-    const char *message = g->completionPopupText[0] ? g->completionPopupText : "Bravo !";
-    int titleSize = 36;
-    int msgWidth = MeasureText(message, titleSize);
-    DrawText(message, (int)(box.x + (box.width - msgWidth) / 2), (int)(box.y + 50), titleSize, (Color){ 40, 40, 40, 255 });
-
-    const char *coinsText = TextFormat("+%d pièces", g->pendingCoinsReward);
-    int coinsSize = 28;
-    int coinsWidth = MeasureText(coinsText, coinsSize);
-    DrawText(coinsText, (int)(box.x + (box.width - coinsWidth) / 2), (int)(box.y + box.height / 2 - 10), coinsSize, (Color){ 100, 160, 100, 255 });
-
-    const char *hint = "Appuie sur Entree ou clique pour revenir au hub";
-    int hintSize = 22;
-    int hintWidth = MeasureText(hint, hintSize);
-    DrawText(hint, (int)(box.x + (box.width - hintWidth) / 2), (int)(box.y + box.height - 60), hintSize, (Color){ 90, 90, 90, 255 });
-}
+// Fonction supprimée - les minijeux gèrent maintenant leur propre écran de fin
 
 static Rectangle getMusicButtonRect(void) {
     float sw = (float)GetScreenWidth();

@@ -278,10 +278,24 @@ static void draw_game(void) {
     // Mot
     int len = strlen(guessed);
     int wordCx = GetScreenWidth()/2; // Position indépendante du pendu
+    int wordY = 280;
+    int wordStartX = wordCx - len*15 + 350; // Position X du début du mot
+    
+    // Texte au-dessus du mot
+    const char *wordInstruction = "Trouve le mot !";
+    int instructionWidth = MeasureText(wordInstruction, 28);
+    DrawText(wordInstruction, wordStartX + len*15 - instructionWidth/2 - 50, wordY - 100, 45, BLACK);
+    
+    // Afficher le mot
     for (int i = 0; i < len; i++) {
         char s[2] = {guessed[i], 0};
-        DrawText(s, wordCx - len*15 + i*30 + 350, 280, 40, BLUE);
+        DrawText(s, wordStartX + i*30, wordY, 40, BLUE);
     }
+    
+    // Texte en dessous du mot
+    const char *keyboardHint = "Tu peux utiliser ton clavier";
+    int hintWidth = MeasureText(keyboardHint, 22);
+    DrawText(keyboardHint, wordStartX + len*15 - hintWidth/2, wordY + 50, 22, BLACK);
     
     // Clavier
     for (int i = 0; i < 26; i++) {
