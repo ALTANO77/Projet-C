@@ -71,8 +71,10 @@ typedef struct {
     ZoneProgress progress[ZONE_COUNT];
     Texture2D menuBackground;
     Texture2D menuBear;
+    Texture2D titleBackground;
     bool hasMenuBackground;
     bool hasMenuBear;
+    bool hasTitleBackground;
     Texture2D bearOutfits[5];  // Images nounours avec différentes tenues
     bool hasBearOutfit[5];
     int currentBearOutfit;  // Index de la tenue actuellement portée (-1 = départ)
@@ -611,6 +613,8 @@ int main(int argc, char **argv) {
     g.hasMenuBackground = g.menuBackground.id != 0;
     g.menuBear = loadTextureIfAvailable("assets/nounours_depart.png");
     g.hasMenuBear = g.menuBear.id != 0;
+    g.titleBackground = loadTextureIfAvailable("assets/ecran acceuil.png");
+    g.hasTitleBackground = g.titleBackground.id != 0;
     
     // Charger les nounours avec différentes tenues
     const char *bearOutfitFiles[5] = {
@@ -832,6 +836,12 @@ int main(int argc, char **argv) {
         ClearBackground((Color){ 30, 34, 46, 255 });
         switch (g.state) {
             case STATE_TITLE:
+                // Afficher le fond d'accueil
+                if (g.hasTitleBackground && g.titleBackground.id != 0) {
+                    Rectangle src = { 0, 0, (float)g.titleBackground.width, (float)g.titleBackground.height };
+                    Rectangle dst = { 0, 0, (float)GetScreenWidth(), (float)GetScreenHeight() };
+                    DrawTexturePro(g.titleBackground, src, dst, (Vector2){ 0, 0 }, 0.0f, WHITE);
+                }
                 drawCentered("Gros Nounours 2D", 140, 64, RAYWHITE);
                 drawCentered("Entrée: Jouer", 240, 26, LIGHTGRAY);
                 drawCentered("Flèches: Gauche/Droite — Espace: Saut — E/Entrée: Interagir", 300, 20, GRAY);
@@ -843,7 +853,6 @@ int main(int argc, char **argv) {
             case STATE_HUB: {
                 drawMenuBackground(&g);
                 drawBearCloseup(&g);
-                DrawText("Clique sur une porte | F11: Plein écran | F2: Debug (drag & drop)", 40, 40, 24, WHITE);
                 drawPortalHighlights(&g);
                 drawMinigameStatusTable(&g);
                 drawCoinCounter(&g);
@@ -994,6 +1003,7 @@ int main(int argc, char **argv) {
     }
     saveMenuLayout(&g);
     if (g.hasMenuBackground) UnloadTexture(g.menuBackground);
+    if (g.hasTitleBackground) UnloadTexture(g.titleBackground);
     for (int i = 0; i < ZONE_COUNT; ++i) {
         if (g.hasZoneBackground[i]) UnloadTexture(g.zoneBackgrounds[i]);
     }
