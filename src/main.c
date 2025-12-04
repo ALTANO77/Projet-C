@@ -103,6 +103,8 @@ typedef struct {
     int outfitPrices[5];
     bool outfitOwned[5];
     BoutiqueData boutiqueData;
+    float inactivityTimer;  // Timer pour l'inactivité sur l'écran d'accueil
+    Vector2 lastMousePos;   // Dernière position de la souris pour détecter l'inactivité
 } Game;
 
 typedef struct {
@@ -656,6 +658,8 @@ int main(int argc, char **argv) {
     g.draggingBear = false;
     g.draggingShopPortal = false;
     g.hoveredPortal = -1;
+    g.inactivityTimer = 0.0f;
+    g.lastMousePos = (Vector2){ 0, 0 };
     g.music = LoadMusicStream("assets/music.ogg");
     g.hasMusic = g.music.frameCount > 0;
     g.musicMuted = false;
@@ -673,6 +677,10 @@ int main(int argc, char **argv) {
         float dt = GetFrameTime();
         clampBearToScreen(&g);
         g.hoveredPortal = -1;
+        // Réinitialiser le timer seulement si on quitte l'écran d'accueil
+        if (g.state != STATE_HUB) {
+            g.inactivityTimer = 0.0f;
+        }
         if (g.hasMusic && !g.musicMuted) {
             UpdateMusicStream(g.music);
         }
@@ -693,6 +701,16 @@ int main(int argc, char **argv) {
                 handleDebugDragging(&g);
                 if (!g.showDebugOverlay) {
                     Vector2 mouse = GetMousePosition();
+                    
+                    // Détecter l'inactivité (seulement les clics réinitialisent le timer)
+                    bool anyClick = IsMouseButtonPressed(MOUSE_LEFT_BUTTON) || IsMouseButtonPressed(MOUSE_RIGHT_BUTTON);
+                    
+                    if (anyClick) {
+                        g.inactivityTimer = 0.0f; // Réinitialiser le timer seulement sur clic
+                    } else {
+                        g.inactivityTimer += dt; // Incrémenter le timer
+                    }
+                    
                     bool portalHovered = false;
                     bool portalClicked = false;
                     for (int i = 0; i < ZONE_COUNT; ++i) {
@@ -830,6 +848,34 @@ int main(int argc, char **argv) {
                 drawMinigameStatusTable(&g);
                 drawCoinCounter(&g);
                 drawDebugOverlay(&g);
+                
+                // Afficher le message d'inactivité après 5 secondes
+                if (g.inactivityTimer >= 5.0f) {
+                    int sw = GetScreenWidth();
+                    int sh = GetScreenHeight();
+                    int fontSize = 28;
+                    int lineHeight = 35;
+                    Color textColor = (Color){ 255, 255, 255, 230 };
+                    
+                    const char *line1 = "Clique sur une porte, la bibliotheque ou le puzzle pour jouer.";
+                    const char *line2 = "Clique sur Gros Nounours pour lui acheter des habits.";
+                    
+                    int line1Width = MeasureText(line1, fontSize);
+                    int line2Width = MeasureText(line2, fontSize);
+                    
+                    // Fond semi-transparent pour le message
+                    int padding = 20;
+                    int boxHeight = lineHeight * 2 + padding * 2;
+                    int boxWidth = (line1Width > line2Width ? line1Width : line2Width) + padding * 2;
+                    int boxX = (sw - boxWidth) / 2 + 100; // Décalé de 100 pixels vers la droite
+                    int boxY = sh - boxHeight - 50;
+                    
+                    DrawRectangle(boxX, boxY, boxWidth, boxHeight, (Color){ 0, 0, 0, 180 });
+                    DrawRectangleLinesEx((Rectangle){ boxX, boxY, boxWidth, boxHeight }, 2.0f, (Color){ 255, 255, 255, 100 });
+                    
+                    DrawText(line1, boxX + padding, boxY + padding, fontSize, textColor);
+                    DrawText(line2, boxX + padding, boxY + padding + lineHeight, fontSize, textColor);
+                }
             } break;
             case STATE_ZONE_JARDIN: {
                 int y = 80;
