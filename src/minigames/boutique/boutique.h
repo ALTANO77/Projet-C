@@ -12,6 +12,7 @@ typedef struct {
     int outfitPrices[5];
     bool outfitOwned[5];
     int *currentBearOutfit;  // Pointeur vers l'index de la tenue actuellement portée
+    bool wantsToExit;  // Flag pour retourner au hub
 } BoutiqueData;
 
 // Fonctions de la boutique

@@ -491,25 +491,8 @@ static void clampBearToScreen(Game *g) {
 }
 
 static void drawPortalHighlights(const Game *g) {
-    Vector2 mouse = GetMousePosition();
-    for (int i = 0; i < ZONE_COUNT; ++i) {
-        Rectangle rect = computePortalRect(g, i);
-        bool hover = CheckCollisionPointRec(mouse, rect);
-        if (hover) {
-            DrawRectangleRounded(rect, 0.12f, 6, (Color){ 255, 255, 255, 35 });
-            DrawRectangleRoundedLines(rect, 0.12f, 6, (Color){ 255, 215, 0, 200 });
-            DrawText(HUB_PORTALS[i].label, (int)(rect.x + rect.width * 0.2f), (int)(rect.y - 32), 28, RAYWHITE);
-        }
-    }
-    Rectangle shopRect = computeShopPortalRect(g);
-    if (shopRect.width > 0) {
-        bool hover = CheckCollisionPointRec(mouse, shopRect);
-        if (hover) {
-            DrawRectangleRounded(shopRect, 0.12f, 6, (Color){ 255, 255, 255, 35 });
-            DrawRectangleRoundedLines(shopRect, 0.12f, 6, (Color){ 120, 220, 255, 220 });
-            DrawText("Boutique", (int)(shopRect.x + shopRect.width * 0.1f), (int)(shopRect.y - 32), 28, RAYWHITE);
-        }
-    }
+    // Plus rien n'est affiché au survol des portails
+    (void)g; // Éviter l'avertissement de variable non utilisée
 }
 
 static void handleDebugDragging(Game *g) {
@@ -644,6 +627,7 @@ int main(int argc, char **argv) {
     // Initialiser la boutique (charge les textures depuis assets/boutique/)
     g.boutiqueData.collectibles = &g.collectibles;
     g.boutiqueData.currentBearOutfit = &g.currentBearOutfit;
+    g.boutiqueData.wantsToExit = false;
     Boutique_Init(&g.boutiqueData);
     
     // Synchroniser les données avec la structure Game (pour compatibilité)
@@ -760,6 +744,11 @@ int main(int argc, char **argv) {
                     g.boutiqueData.outfitOwned[i] = g.outfitOwned[i];
                 }
                 Boutique_Update(&g.boutiqueData);
+                // Vérifier si on veut retourner au hub
+                if (g.boutiqueData.wantsToExit) {
+                    g.state = STATE_HUB;
+                    g.activeZone = ZONE_NONE;
+                }
                 // Synchroniser les données après la mise à jour
                 for (int i = 0; i < 5; ++i) {
                     g.outfitOwned[i] = g.boutiqueData.outfitOwned[i];

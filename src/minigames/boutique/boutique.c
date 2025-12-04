@@ -45,6 +45,7 @@ static void drawCoinCounter(int collectibles) {
 
 // Initialisation de la boutique - charge les textures depuis assets/boutique/
 void Boutique_Init(BoutiqueData *data) {
+    data->wantsToExit = false;
     // Les noms des tenues
     data->outfitNames[0] = "Noël";
     data->outfitNames[1] = "Aviateur";
@@ -82,8 +83,28 @@ void Boutique_Init(BoutiqueData *data) {
 
 // Mise à jour de la boutique (gestion des clics)
 void Boutique_Update(BoutiqueData *data) {
+    // Réinitialiser le flag à chaque frame
+    data->wantsToExit = false;
+    
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
         Vector2 mouse = GetMousePosition();
+        
+        // Vérifier le clic sur le bouton "Retour au salon"
+        int sw = GetScreenWidth();
+        int sh = GetScreenHeight();
+        const char *buttonText = "Retour au salon";
+        int buttonFontSize = 28;
+        int buttonWidth = MeasureText(buttonText, buttonFontSize) + 40;
+        int buttonHeight = 50;
+        int buttonX = (sw - buttonWidth) / 2; // Centré horizontalement
+        int buttonY = sh - 840; // Position ajustée
+        Rectangle backButton = { buttonX, buttonY, buttonWidth, buttonHeight };
+        
+        if (CheckCollisionPointRec(mouse, backButton)) {
+            data->wantsToExit = true;
+            return;
+        }
+        
         float outfitSize = (float)fminf(GetScreenWidth(), GetScreenHeight()) * 0.25f;
         float spacing = outfitSize * 1.05f;
         float totalWidth = 5 * spacing;
@@ -161,6 +182,21 @@ void Boutique_Draw(BoutiqueData *data) {
     // Afficher le compteur de pièces
     drawCoinCounter(*data->collectibles);
 
+    // Afficher le texte d'instruction
+    const char *instructionText = "Clique sur un habit pour habiller Gros Nounours.\nSi tu n'as pas assez de pièces, retourne jouer pour en gagner !";
+    int fontSize = 32;
+    int lineHeight = 40;
+    int textY = 390;
+    int sw = GetScreenWidth();
+    
+    // Afficher le texte ligne par ligne
+    const char *line1 = "Clique sur un habit pour habiller Gros Nounours.";
+    const char *line2 = "Si tu n'as pas assez de pièces, retourne jouer pour en gagner !";
+    int line1Width = MeasureText(line1, fontSize);
+    int line2Width = MeasureText(line2, fontSize);
+    DrawText(line1, (sw - line1Width) / 2, textY, fontSize, DARKGRAY);
+    DrawText(line2, (sw - line2Width) / 2, textY + lineHeight, fontSize, DARKGRAY);
+
     // Afficher les 5 tenues côte à côte
     float outfitSize = (float)fminf(GetScreenWidth(), GetScreenHeight()) * 0.25f; // Taille inchangée
     float spacing = outfitSize * 1.05f; // Espacement inchangé
@@ -202,10 +238,8 @@ void Boutique_Draw(BoutiqueData *data) {
         bool isOwned = data->outfitOwned[i];
         bool hovered = CheckCollisionPointRec(mouse, outfitRect);
         
-        // Bordure si survolée ou si c'est la tenue actuellement portée
-        if (hovered && !isOwned) {
-            DrawRectangleLinesEx(outfitRect, 3.0f, canAfford ? (Color){ 50, 200, 50, 255 } : (Color){ 200, 50, 50, 255 });
-        } else if (isOwned && *data->currentBearOutfit == i) {
+        // Bordure si c'est la tenue actuellement portée (pas de bordure au survol)
+        if (isOwned && *data->currentBearOutfit == i) {
             // Bordure dorée pour la tenue actuellement portée
             DrawRectangleLinesEx(outfitRect, 4.0f, (Color){ 255, 215, 0, 255 });
         }
@@ -239,6 +273,23 @@ void Boutique_Draw(BoutiqueData *data) {
         }
         
     }
+    
+    // Afficher le bouton "Retour au salon"
+    int sh = GetScreenHeight();
+    const char *buttonText = "Retour au salon";
+    int buttonFontSize = 28;
+    int buttonWidth = MeasureText(buttonText, buttonFontSize) + 40;
+    int buttonHeight = 50;
+    int buttonX = (sw - buttonWidth) / 2; // Centré horizontalement
+    int buttonY = sh - 840; // Position ajustée
+    Rectangle backButton = { buttonX, buttonY, buttonWidth, buttonHeight };
+    
+    bool hovered = CheckCollisionPointRec(mouse, backButton);
+    Color buttonColor = hovered ? (Color){ 160, 120, 80, 255 } : (Color){ 139, 90, 43, 255 }; // Marron
+    
+    DrawRectangleRec(backButton, buttonColor);
+    DrawRectangleLinesEx(backButton, 2.0f, (Color){ 101, 67, 33, 255 }); // Bordure marron foncé
+    DrawText(buttonText, buttonX + 20, buttonY + 12, buttonFontSize, WHITE);
 }
 
 // Déchargement des ressources
