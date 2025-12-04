@@ -39,11 +39,15 @@ static char word[20], guessed[20], letters[26];
 static int errors = 0, won = 0, lost = 0, init = 0, isHardWord = 0, wantsToExit = 0;
 static Texture2D backgroundTex = {0};
 static bool hasBackground = false;
+static int randomSeed = 0; // Compteur pour améliorer l'aléatoire
 
 static void init_game(void) {
-    srand((unsigned)time(NULL));
+    // Améliorer l'aléatoire en utilisant time + un compteur qui s'incrémente
+    randomSeed++;
+    srand((unsigned)(time(NULL) + randomSeed * 1000));
     // Choisir aléatoirement entre mots faciles (2 pièces) et difficiles (5 pièces)
-    if (rand() % 2 == 0) {
+    int wordType = rand() % 2;
+    if (wordType == 0) {
         currentWordIndex = rand() % 13;
         strcpy(word, WORDS_2[currentWordIndex]);
         isHardWord = 0;
@@ -438,12 +442,14 @@ static void unload_game(void) {
 }
 
 static bool is_done(int *coins) {
-    // Ne retourner true que si l'utilisateur veut quitter (bouton Retour ou Backspace)
-    if (wantsToExit) {
+    // Retourner les pièces dès qu'on gagne, même si on ne quitte pas encore
+    if (won || lost) {
         if (coins) *coins = won ? (isHardWord ? 5 : 2) : 0;
-        return 1;
+    } else {
+        if (coins) *coins = 0;
     }
-    return 0;
+    // Ne retourner true que si l'utilisateur veut quitter (bouton Retour ou Backspace)
+    return wantsToExit;
 }
 
 MinigameAPI GetMinigamePendu(void) {

@@ -780,25 +780,33 @@ int main(int argc, char **argv) {
                     break;
                 }
 
-                if (!g.minigameCompleted) {
-                    if (g.currentMinigame.update) g.currentMinigame.update(dt);
-                    // Gestion de la fin des mini-jeux et récupération des pièces
-                    if (g.currentMinigame.isCompleted) {
-                        int coins = 0;
-                        if (g.currentMinigame.isCompleted(&coins)) {
-                            // Ne pas déclencher le popup si le minijeu gère déjà sa propre fin
-                            // (comme le pendu qui affiche son propre écran de fin)
-                            // On finalise directement le minijeu
-                            g.collectibles += coins;
-                            if (g.activeZone >= 0 && g.activeZone < ZONE_COUNT) {
-                                g.progress[g.activeZone].completed = true;
-                            }
-                            if (g.currentMinigame.unload) g.currentMinigame.unload();
-                            g.currentMinigame = (MinigameAPI){0};
-                            g.currentMinigameName = NULL;
-                            g.state = STATE_HUB;
-                            g.activeZone = ZONE_NONE;
+                if (g.currentMinigame.update) g.currentMinigame.update(dt);
+                // Ajouter les pièces dès qu'on gagne, même si on ne quitte pas encore
+                if (g.currentMinigame.isCompleted) {
+                    int coins = 0;
+                    g.currentMinigame.isCompleted(&coins); // Obtenir les pièces même si on ne quitte pas
+                    if (coins > 0 && !g.minigameCompleted) {
+                        // Ajouter les pièces immédiatement dès qu'on gagne
+                        g.collectibles += coins;
+                        g.minigameCompleted = true; // Marquer comme complété pour éviter les ajouts multiples
+                    } else if (coins == 0 && g.minigameCompleted) {
+                        // Si on rejoue (coins == 0 mais on était complété), réinitialiser le flag
+                        g.minigameCompleted = false;
+                    }
+                }
+                // Gestion de la fin des mini-jeux (quand on quitte)
+                if (g.currentMinigame.isCompleted) {
+                    int coins = 0;
+                    if (g.currentMinigame.isCompleted(&coins)) {
+                        // L'utilisateur veut quitter, finaliser le minijeu
+                        if (g.activeZone >= 0 && g.activeZone < ZONE_COUNT) {
+                            g.progress[g.activeZone].completed = true;
                         }
+                        if (g.currentMinigame.unload) g.currentMinigame.unload();
+                        g.currentMinigame = (MinigameAPI){0};
+                        g.currentMinigameName = NULL;
+                        g.state = STATE_HUB;
+                        g.activeZone = ZONE_NONE;
                     }
                 } else {
                     g.completionPopupTimer += dt;

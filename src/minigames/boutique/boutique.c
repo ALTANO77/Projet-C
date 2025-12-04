@@ -84,22 +84,40 @@ void Boutique_Init(BoutiqueData *data) {
 void Boutique_Update(BoutiqueData *data) {
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
         Vector2 mouse = GetMousePosition();
-        float outfitSize = (float)fminf(GetScreenWidth(), GetScreenHeight()) * 0.25f; // Même taille que dans Draw
-        float spacing = outfitSize * 1.05f; // Même espacement que dans Draw
+        float outfitSize = (float)fminf(GetScreenWidth(), GetScreenHeight()) * 0.25f;
+        float spacing = outfitSize * 1.05f;
         float totalWidth = 5 * spacing;
         float startX = (GetScreenWidth() - totalWidth) / 2.0f;
-        float startY = GetScreenHeight() * 0.50f; // Remonté encore plus
+        float startY = GetScreenHeight() * 0.50f;
         
         for (int i = 0; i < 5; ++i) {
+            // Même logique que dans Draw : agrandir toutes sauf l'aviateur
+            float scale = (i == 1) ? 1.0f : 1.6f;
+            float currentWidth = (i == 0) ? outfitSize * 1.15f * scale : outfitSize * scale;
+            float currentHeight = outfitSize * scale;
+            
             // Décaler Noël (0) et Aviateur (1) vers la gauche, Vampire (3) et Maillot (4) vers la droite
             float offsetX = 0.0f;
-            if (i == 0 || i == 1) offsetX = -50.0f; // Vers la gauche
-            else if (i == 3 || i == 4) offsetX = 50.0f; // Vers la droite
+            float offsetY = -60.0f; // Toutes les tenues remontées
+            if (i == 0) {
+                offsetX = -160.0f; // Noël légèrement à gauche
+            } else if (i == 1) {
+                offsetX = -50.0f; // Aviateur vers la gauche
+                offsetY = 10.0f; // Aviateur un peu plus bas que les autres
+            } else if (i == 2) {
+                offsetX = -90.0f; // Plage encore plus vers la gauche
+            } else if (i == 3) {
+                offsetX = -30.0f; // Vampire vers la gauche
+                offsetY = -80.0f; // Vampire encore plus haut
+            } else if (i == 4) {
+                offsetX = -10.0f; // Maillot un peu à gauche
+                offsetY = -80.0f; // Maillot encore plus haut
+            }
             Rectangle outfitRect = {
                 startX + i * spacing + offsetX,
-                startY,
-                outfitSize,
-                outfitSize
+                startY + offsetY,
+                currentWidth,
+                currentHeight
             };
             
             // Vérifier si on clique sur une tenue
@@ -158,11 +176,24 @@ void Boutique_Draw(BoutiqueData *data) {
         float currentHeight = outfitSize * scale;
         // Décaler Noël (0) et Aviateur (1) vers la gauche, Vampire (3) et Maillot (4) vers la droite
         float offsetX = 0.0f;
-        if (i == 0 || i == 1) offsetX = -50.0f; // Vers la gauche
-        else if (i == 3 || i == 4) offsetX = 50.0f; // Vers la droite
+        float offsetY = -60.0f; // Toutes les tenues remontées
+        if (i == 0) {
+            offsetX = -160.0f; // Noël légèrement à gauche
+        } else if (i == 1) {
+            offsetX = -50.0f; // Aviateur vers la gauche
+            offsetY = 10.0f; // Aviateur un peu plus bas que les autres
+        } else if (i == 2) {
+            offsetX = -90.0f; // Plage encore plus vers la gauche
+        } else if (i == 3) {
+            offsetX = -30.0f; // Vampire vers la gauche
+            offsetY = -80.0f; // Vampire encore plus haut
+        } else if (i == 4) {
+            offsetX = -10.0f; // Maillot un peu à gauche
+            offsetY = -80.0f; // Maillot encore plus haut
+        }
         Rectangle outfitRect = {
             startX + i * spacing + offsetX,
-            startY,
+            startY + offsetY,
             currentWidth,
             currentHeight
         };
