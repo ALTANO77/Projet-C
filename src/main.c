@@ -72,9 +72,11 @@ typedef struct {
     Texture2D menuBackground;
     Texture2D menuBear;
     Texture2D titleBackground;
+    Texture2D titleBackgroundHover;
     bool hasMenuBackground;
     bool hasMenuBear;
     bool hasTitleBackground;
+    bool hasTitleBackgroundHover;
     Texture2D bearOutfits[5];  // Images nounours avec différentes tenues
     bool hasBearOutfit[5];
     int currentBearOutfit;  // Index de la tenue actuellement portée (-1 = départ)
@@ -96,6 +98,8 @@ typedef struct {
     bool hasSoundOffIcon;
     RectRatios shopPortalLayout;
     bool draggingShopPortal;
+    RectRatios titleRectLayout;  // Rectangle unique pour l'écran d'accueil
+    bool draggingTitleRect;     // Flag pour déplacer le rectangle de l'écran d'accueil
     Texture2D outfitPreview;
     bool hasOutfitPreview;
     Texture2D outfits[5];
@@ -128,6 +132,7 @@ static const RectRatios DEFAULT_PORTAL_LAYOUTS[ZONE_COUNT] = {
     { 0.565f, 0.25f, 0.11f, 0.30f }
 };
 static const RectRatios DEFAULT_SHOP_PORTAL = { 0.78f, 0.20f, 0.12f, 0.32f };
+static const RectRatios DEFAULT_TITLE_RECT = { 0.396f, 0.315f, 0.208f, 0.370f };  // Rectangle 400x400 pixels centré (sur écran 1920x1080)
 
 static const BearLayout DEFAULT_BEAR_LAYOUT = { 0.021f, 0.113f, 0.85f };
 static const char *PORTAL_KEYS[ZONE_COUNT] = { "jardin", "chambre", "grenier", "cuisine" };
@@ -215,6 +220,8 @@ static void initDefaultLayout(Game *g) {
     for (int i = 0; i < ZONE_COUNT; ++i) g->portalLayouts[i] = DEFAULT_PORTAL_LAYOUTS[i];
     g->bearLayout = DEFAULT_BEAR_LAYOUT;
     g->shopPortalLayout = DEFAULT_SHOP_PORTAL;
+    g->titleRectLayout = DEFAULT_TITLE_RECT;
+    g->draggingTitleRect = false;
 }
 
 static int portalIndexFromName(const char *name) {
@@ -457,6 +464,18 @@ static Rectangle computeShopPortalRect(const Game *g) {
     };
 }
 
+static Rectangle computeTitleRect(const Game *g) {
+    float sw = (float)GetScreenWidth();
+    float sh = (float)GetScreenHeight();
+    RectRatios layout = g->titleRectLayout;
+    return (Rectangle){
+        layout.left * sw,
+        layout.top * sh,
+        layout.width * sw,
+        layout.height * sh
+    };
+}
+
 static Rectangle computeBearRect(const Game *g) {
     Texture2D bearTex = g->menuBear;
     bool hasBear = g->hasMenuBear;
@@ -504,6 +523,7 @@ static void handleDebugDragging(Game *g) {
         g->draggingPortal = -1;
         g->draggingBear = false;
         g->draggingShopPortal = false;
+        g->draggingTitleRect = false;
         return;
     }
 
@@ -512,26 +532,38 @@ static void handleDebugDragging(Game *g) {
         g->draggingPortal = -1;
         g->draggingBear = false;
         g->draggingShopPortal = false;
-        for (int i = 0; i < ZONE_COUNT; ++i) {
-            Rectangle rect = computePortalRect(g, i);
-            if (CheckCollisionPointRec(mouse, rect)) {
-                g->draggingPortal = i;
-                g->dragOffset = (Vector2){ mouse.x - rect.x, mouse.y - rect.y };
-                break;
+        g->draggingTitleRect = false;
+        
+        // Sur l'écran d'accueil, on ne gère que le rectangle unique
+        if (g->state == STATE_TITLE) {
+            Rectangle titleRect = computeTitleRect(g);
+            if (CheckCollisionPointRec(mouse, titleRect)) {
+                g->draggingTitleRect = true;
+                g->dragOffset = (Vector2){ mouse.x - titleRect.x, mouse.y - titleRect.y };
             }
-        }
-        if (g->draggingPortal == -1) {
-            Rectangle shopRect = computeShopPortalRect(g);
-            if (CheckCollisionPointRec(mouse, shopRect)) {
-                g->draggingShopPortal = true;
-                g->dragOffset = (Vector2){ mouse.x - shopRect.x, mouse.y - shopRect.y };
+        } else {
+            // Logique normale pour le hub
+            for (int i = 0; i < ZONE_COUNT; ++i) {
+                Rectangle rect = computePortalRect(g, i);
+                if (CheckCollisionPointRec(mouse, rect)) {
+                    g->draggingPortal = i;
+                    g->dragOffset = (Vector2){ mouse.x - rect.x, mouse.y - rect.y };
+                    break;
+                }
             }
-        }
-        if (!g->draggingShopPortal && g->draggingPortal == -1 && g->hasMenuBear) {
-            Rectangle bearRect = computeBearRect(g);
-            if (bearRect.width > 0 && CheckCollisionPointRec(mouse, bearRect)) {
-                g->draggingBear = true;
-                g->dragOffset = (Vector2){ mouse.x - bearRect.x, mouse.y - bearRect.y };
+            if (g->draggingPortal == -1) {
+                Rectangle shopRect = computeShopPortalRect(g);
+                if (CheckCollisionPointRec(mouse, shopRect)) {
+                    g->draggingShopPortal = true;
+                    g->dragOffset = (Vector2){ mouse.x - shopRect.x, mouse.y - shopRect.y };
+                }
+            }
+            if (!g->draggingShopPortal && g->draggingPortal == -1 && g->hasMenuBear) {
+                Rectangle bearRect = computeBearRect(g);
+                if (bearRect.width > 0 && CheckCollisionPointRec(mouse, bearRect)) {
+                    g->draggingBear = true;
+                    g->dragOffset = (Vector2){ mouse.x - bearRect.x, mouse.y - bearRect.y };
+                }
             }
         }
     }
@@ -539,7 +571,12 @@ static void handleDebugDragging(Game *g) {
     if (IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
         float sw = (float)GetScreenWidth();
         float sh = (float)GetScreenHeight();
-        if (g->draggingPortal >= 0) {
+        if (g->draggingTitleRect) {
+            RectRatios *layout = &g->titleRectLayout;
+            layout->left = (mouse.x - g->dragOffset.x) / sw;
+            layout->top = (mouse.y - g->dragOffset.y) / sh;
+            clampPortalLayout(layout);
+        } else if (g->draggingPortal >= 0) {
             RectRatios *layout = &g->portalLayouts[g->draggingPortal];
             layout->left = (mouse.x - g->dragOffset.x) / sw;
             layout->top = (mouse.y - g->dragOffset.y) / sh;
@@ -560,30 +597,48 @@ static void handleDebugDragging(Game *g) {
         g->draggingPortal = -1;
         g->draggingBear = false;
         g->draggingShopPortal = false;
+        g->draggingTitleRect = false;
     }
 }
 
 static void drawDebugOverlay(const Game *g) {
     if (!g->showDebugOverlay) return;
     Vector2 mouse = GetMousePosition();
-    const int panelWidth = 400;
-    const int panelHeight = 40 + (ZONE_COUNT + 1) * 24;
-    DrawRectangle(30, 90, panelWidth, panelHeight, (Color){ 0, 0, 0, 160 });
-    DrawRectangleLines(30, 90, panelWidth, panelHeight, (Color){ 255, 255, 255, 80 });
-    DrawText(TextFormat("Mouse: %.0f, %.0f", mouse.x, mouse.y), 40, 100, 20, RAYWHITE);
-    for (int i = 0; i < ZONE_COUNT; ++i) {
-        Rectangle rect = computePortalRect(g, i);
-        DrawRectangleLinesEx(rect, 2.0f, (Color){ 255, 0, 0, 120 });
-        DrawText(TextFormat("%s: x=%.0f y=%.0f w=%.0f h=%.0f",
-                            HUB_PORTALS[i].label,
-                            rect.x, rect.y, rect.width, rect.height),
-                 40, 130 + i * 24, 18, LIGHTGRAY);
+    
+    if (g->state == STATE_TITLE) {
+        // Sur l'écran d'accueil, afficher uniquement le rectangle unique
+        const int panelWidth = 400;
+        const int panelHeight = 80;
+        DrawRectangle(30, 90, panelWidth, panelHeight, (Color){ 0, 0, 0, 160 });
+        DrawRectangleLines(30, 90, panelWidth, panelHeight, (Color){ 255, 255, 255, 80 });
+        DrawText(TextFormat("Mouse: %.0f, %.0f", mouse.x, mouse.y), 40, 100, 20, RAYWHITE);
+        
+        Rectangle titleRect = computeTitleRect(g);
+        DrawRectangleLinesEx(titleRect, 2.0f, (Color){ 255, 0, 0, 120 });
+        DrawText(TextFormat("Title Rect: x=%.0f y=%.0f w=%.0f h=%.0f",
+                            titleRect.x, titleRect.y, titleRect.width, titleRect.height),
+                 40, 130, 18, LIGHTGRAY);
+    } else {
+        // Logique normale pour le hub
+        const int panelWidth = 400;
+        const int panelHeight = 40 + (ZONE_COUNT + 1) * 24;
+        DrawRectangle(30, 90, panelWidth, panelHeight, (Color){ 0, 0, 0, 160 });
+        DrawRectangleLines(30, 90, panelWidth, panelHeight, (Color){ 255, 255, 255, 80 });
+        DrawText(TextFormat("Mouse: %.0f, %.0f", mouse.x, mouse.y), 40, 100, 20, RAYWHITE);
+        for (int i = 0; i < ZONE_COUNT; ++i) {
+            Rectangle rect = computePortalRect(g, i);
+            DrawRectangleLinesEx(rect, 2.0f, (Color){ 255, 0, 0, 120 });
+            DrawText(TextFormat("%s: x=%.0f y=%.0f w=%.0f h=%.0f",
+                                HUB_PORTALS[i].label,
+                                rect.x, rect.y, rect.width, rect.height),
+                     40, 130 + i * 24, 18, LIGHTGRAY);
+        }
+        Rectangle shopRect = computeShopPortalRect(g);
+        DrawRectangleLinesEx(shopRect, 2.0f, (Color){ 0, 180, 255, 150 });
+        DrawText(TextFormat("Boutique: x=%.0f y=%.0f w=%.0f h=%.0f",
+                            shopRect.x, shopRect.y, shopRect.width, shopRect.height),
+                 40, 130 + ZONE_COUNT * 24, 18, LIGHTGRAY);
     }
-    Rectangle shopRect = computeShopPortalRect(g);
-    DrawRectangleLinesEx(shopRect, 2.0f, (Color){ 0, 180, 255, 150 });
-    DrawText(TextFormat("Boutique: x=%.0f y=%.0f w=%.0f h=%.0f",
-                        shopRect.x, shopRect.y, shopRect.width, shopRect.height),
-             40, 130 + ZONE_COUNT * 24, 18, LIGHTGRAY);
 }
 
 static GameState zoneToState(ZoneId zone) {
@@ -615,6 +670,8 @@ int main(int argc, char **argv) {
     g.hasMenuBear = g.menuBear.id != 0;
     g.titleBackground = loadTextureIfAvailable("assets/ecran acceuil.png");
     g.hasTitleBackground = g.titleBackground.id != 0;
+    g.titleBackgroundHover = loadTextureIfAvailable("assets/ecran_accueil_ouvert.png");
+    g.hasTitleBackgroundHover = g.titleBackgroundHover.id != 0;
     
     // Charger les nounours avec différentes tenues
     const char *bearOutfitFiles[5] = {
@@ -693,6 +750,21 @@ int main(int argc, char **argv) {
         if (IsKeyPressed(KEY_F2)) g.showDebugOverlay = !g.showDebugOverlay;
 
         if (g.state == STATE_TITLE) {
+            // Mode debug pour déplacer les rectangles (comme dans STATE_HUB)
+            handleDebugDragging(&g);
+            
+            // Détecter le survol et le clic sur le rectangle unique
+            Vector2 mouse = GetMousePosition();
+            Rectangle titleRect = computeTitleRect(&g);
+            bool isHovering = CheckCollisionPointRec(mouse, titleRect);
+            g.hoveredPortal = isHovering ? 0 : -1;
+            
+            // Si on clique sur le rectangle (et qu'on n'est pas en train de le déplacer en mode debug), entrer dans le hub
+            if (!g.showDebugOverlay && isHovering && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+                g.state = STATE_HUB;
+                resetPlayer(&g.player);
+            }
+            
             if (IsKeyPressed(KEY_ENTER)) { g.state = STATE_HUB; resetPlayer(&g.player); }
         } else if (g.state == STATE_PAUSE) {
             if (IsKeyPressed(KEY_ESCAPE)) g.state = STATE_HUB;
@@ -836,15 +908,24 @@ int main(int argc, char **argv) {
         ClearBackground((Color){ 30, 34, 46, 255 });
         switch (g.state) {
             case STATE_TITLE:
-                // Afficher le fond d'accueil
-                if (g.hasTitleBackground && g.titleBackground.id != 0) {
-                    Rectangle src = { 0, 0, (float)g.titleBackground.width, (float)g.titleBackground.height };
-                    Rectangle dst = { 0, 0, (float)GetScreenWidth(), (float)GetScreenHeight() };
-                    DrawTexturePro(g.titleBackground, src, dst, (Vector2){ 0, 0 }, 0.0f, WHITE);
+                // Afficher le fond d'accueil (ouvert si survol, normal sinon)
+                Texture2D *bgToUse = &g.titleBackground;
+                bool hasBg = g.hasTitleBackground && g.titleBackground.id != 0;
+                
+                // Si on survole le rectangle, utiliser l'image "ouvert"
+                if (g.hoveredPortal >= 0 && g.hasTitleBackgroundHover && g.titleBackgroundHover.id != 0) {
+                    bgToUse = &g.titleBackgroundHover;
+                    hasBg = true;
                 }
-                drawCentered("Gros Nounours 2D", 140, 64, RAYWHITE);
-                drawCentered("Entrée: Jouer", 240, 26, LIGHTGRAY);
-                drawCentered("Flèches: Gauche/Droite — Espace: Saut — E/Entrée: Interagir", 300, 20, GRAY);
+                
+                if (hasBg && bgToUse->id != 0) {
+                    Rectangle src = { 0, 0, (float)bgToUse->width, (float)bgToUse->height };
+                    Rectangle dst = { 0, 0, (float)GetScreenWidth(), (float)GetScreenHeight() };
+                    DrawTexturePro(*bgToUse, src, dst, (Vector2){ 0, 0 }, 0.0f, WHITE);
+                }
+                drawCentered("Bienvenue dans l'aventure de Gros Nounours !", 70, 48, RAYWHITE);
+                drawCentered("Clique vite sur la porte pour rencontrer Gros Nounours et commencer a jouer", 130, 32, LIGHTGRAY);
+                drawDebugOverlay(&g);
                 break;
             case STATE_PAUSE:
                 drawCentered("Pause", 180, 48, RAYWHITE);
@@ -1004,6 +1085,7 @@ int main(int argc, char **argv) {
     saveMenuLayout(&g);
     if (g.hasMenuBackground) UnloadTexture(g.menuBackground);
     if (g.hasTitleBackground) UnloadTexture(g.titleBackground);
+    if (g.hasTitleBackgroundHover) UnloadTexture(g.titleBackgroundHover);
     for (int i = 0; i < ZONE_COUNT; ++i) {
         if (g.hasZoneBackground[i]) UnloadTexture(g.zoneBackgrounds[i]);
     }
