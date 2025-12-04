@@ -6,114 +6,91 @@
 #include <time.h>
 #include <math.h>
 
-#define TILE_COUNT 15
-
+// Puzzle 5x5 = 25 tuiles
+#define TILE_COUNT 25
 
 // --------------------------------------------------
-// LOGIQUE DU TAQUIN 4x4
+// LOGIQUE DU PUZZLE 5x5 (plus de case vide)
 // --------------------------------------------------
 
-
-
+// Met le plateau dans l'état solution : 1..25
 void init_solved(Board *b) {
     int val = 1;
     for (int i = 0; i < SIZE; ++i) {
         for (int j = 0; j < SIZE; ++j) {
-            if (i == SIZE - 1 && j == SIZE - 1)
-                b->grid[i][j] = 0; // case vide
-            else
-                b->grid[i][j] = val++;
+            b->grid[i][j] = val++;   // 1..25
         }
     }
-    b->empty_row = SIZE - 1;
-    b->empty_col = SIZE - 1;
+    // ces champs ne servent plus comme "case vide"
+    b->empty_row = -1;
+    b->empty_col = -1;
 }
 
-// mélange en effectuant des mouvements valides de la case vide
+static void swap_cells(Board *b, int r1, int c1, int r2, int c2) {
+    int tmp = b->grid[r1][c1];
+    b->grid[r1][c1] = b->grid[r2][c2];
+    b->grid[r2][c2] = tmp;
+}
+
+// mélange en permutant aléatoirement les 25 cases (Fisher-Yates)
 void shuffle_board(Board *b, int moves_count) {
+    (void)moves_count; // plus utile dans cette version
+
+    // initialisation de base
+    init_solved(b);
+
+    // une seule initialisation de rand ici serait mieux,
+    // mais on garde quelque chose de simple :
     srand((unsigned int)time(NULL));
 
-    for (int m = 0; m < moves_count; ++m) {
-        int directions[4][2] = { {-1,0},{1,0},{0,-1},{0,1} };
-        int possible[4];
-        int pcount = 0;
+    int total = SIZE * SIZE;
 
-        for (int d = 0; d < 4; ++d) {
-            int nr = b->empty_row + directions[d][0];
-            int nc = b->empty_col + directions[d][1];
-            if (nr >= 0 && nr < SIZE && nc >= 0 && nc < SIZE) {
-                possible[pcount++] = d;
-            }
-        }
+    for (int k = total - 1; k > 0; --k) {
+        int r1 = k / SIZE;
+        int c1 = k % SIZE;
 
-        int chosen = possible[rand() % pcount];
-        int nr = b->empty_row + directions[chosen][0];
-        int nc = b->empty_col + directions[chosen][1];
+        int j = rand() % (k + 1);
+        int r2 = j / SIZE;
+        int c2 = j % SIZE;
 
-        int tmp = b->grid[nr][nc];
-        b->grid[nr][nc] = 0;
-        b->grid[b->empty_row][b->empty_col] = tmp;
+        swap_cells(b, r1, c1, r2, c2);
+    }
 
-        b->empty_row = nr;
-        b->empty_col = nc;
+    // si par hasard le puzzle est déjà résolu, on échange deux cases
+    if (is_solved(b)) {
+        swap_cells(b, 0, 0, 0, 1);
     }
 }
 
 void init_random_board(Board *b) {
-    init_solved(b);
-    shuffle_board(b, 1000);
+    shuffle_board(b, 0);
 }
 
+// Renvoie 1 si la case (row,col) est dans la grille
 int can_move_tile(const Board *b, int row, int col) {
+    (void)b;
     if (row < 0 || row >= SIZE || col < 0 || col >= SIZE) return 0;
-    if (b->grid[row][col] == 0) return 0;
-
-    int dr = abs(row - b->empty_row);
-    int dc = abs(col - b->empty_col);
-
-    return (dr + dc == 1); // voisin orthogonal du vide
-}
-
-int move_tile(Board *b, int row, int col) {
-    if (!can_move_tile(b, row, col)) return 0;
-
-    int tmp = b->grid[row][col];
-    b->grid[row][col] = 0;
-    b->grid[b->empty_row][b->empty_col] = tmp;
-
-    b->empty_row = row;
-    b->empty_col = col;
     return 1;
 }
 
-int move_tile_by_number(Board *b, int number) {
-    if (number < 1 || number > 15) return 0;
-
-    int row = -1, col = -1;
-    for (int i = 0; i < SIZE; ++i) {
-        for (int j = 0; j < SIZE; ++j) {
-            if (b->grid[i][j] == number) {
-                row = i;
-                col = j;
-                break;
-            }
-        }
-        if (row != -1) break;
-    }
-
-    if (row == -1) return 0;
-    return move_tile(b, row, col);
+// Plus utilisé dans la logique drag & drop : on laisse un stub neutre
+int move_tile(Board *b, int row, int col) {
+    (void)b; (void)row; (void)col;
+    return 0;
 }
 
+// Stub également
+int move_tile_by_number(Board *b, int number) {
+    (void)b; (void)number;
+    return 0;
+}
+
+// Test si le puzzle est dans l'ordre 1..25
 int is_solved(const Board *b) {
     int val = 1;
     for (int i = 0; i < SIZE; ++i) {
         for (int j = 0; j < SIZE; ++j) {
-            if (i == SIZE - 1 && j == SIZE - 1) {
-                if (b->grid[i][j] != 0) return 0;
-            } else {
-                if (b->grid[i][j] != val++) return 0;
-            }
+            if (b->grid[i][j] != val++) return 0;
         }
     }
     return 1;
@@ -127,14 +104,19 @@ int is_solved(const Board *b) {
 static Board s_board;
 static bool  s_initialized = false;
 static bool  s_finished = false;
-static Texture2D s_tileTextures[TILE_COUNT];   // 15 images
+static Texture2D s_tileTextures[TILE_COUNT];   // 25 images
 static bool s_tilesLoaded = false;
 static int s_moveCount = 0;   // nombre de coups joués
 static Texture2D s_bgTexture;            // la texture de fond
 static bool      s_bgLoaded = false;     // est-ce qu'on l'a chargée ?
-// Timer pour garder l'écran de victoire visible avant retour au menu
-static float     s_endTimer = 0.0f;
 static EndScreenState s_endScreen = {0};
+
+// état du drag & drop
+static bool   s_dragging    = false;
+static int    s_dragRow     = -1;
+static int    s_dragCol     = -1;
+static int    s_dragValue   = 0;     // numéro de la tuile (1..25)
+static Vector2 s_dragOffset = {0};   // pour garder la même position relative à la souris
 
 // calcule la taille et la position du plateau en fonction de la fenêtre
 static void GetBoardLayout(int *tileSize, int *offsetX, int *offsetY) {
@@ -154,14 +136,17 @@ static void GetBoardLayout(int *tileSize, int *offsetX, int *offsetY) {
 // appelé quand on entre dans le mini-jeu
 static void PoussePousse_Init(void) {
     init_random_board(&s_board);
-    s_finished   = false;
+    s_finished    = false;
     s_initialized = true;
-    s_moveCount = 0;   // on remet le compteur à zéro
-    s_endTimer = 0.0f;
-    s_endScreen.wantsToExit = false;
+    s_moveCount   = 0;
+    s_endScreen.wantsToExit   = false;
     s_endScreen.wantsToReplay = false;
-    
-    // Charger les 15 images si pas déjà fait
+    s_dragging    = false;
+    s_dragRow     = -1;
+    s_dragCol     = -1;
+    s_dragValue   = 0;
+
+    // Charger les 25 images si pas déjà fait
     if (!s_tilesLoaded) {
         for (int i = 0; i < TILE_COUNT; i++) {
             char path[64];
@@ -176,24 +161,24 @@ static void PoussePousse_Init(void) {
             }
         }
         s_tilesLoaded = true;
-  
     }
-    
+
     // CHARGEMENT DU FOND 
     if (!s_bgLoaded) {
         Image bg = LoadImage("assets/pousse_pousse/fond.png");  
+        if (bg.data != NULL) {
             s_bgTexture = LoadTextureFromImage(bg);
             UnloadImage(bg);
             s_bgLoaded = true;
-        } 
-        else {
+        } else {
             TraceLog(LOG_WARNING, "Fond pousse_pousse introuvable : assets/pousse_pousse/fond.png");
         }
-
+    }
 }
 
-// appelé à chaque frame pour gérer les clics
+// appelé à chaque frame pour gérer les interactions
 static void PoussePousse_Update(float dt) {
+    (void)dt;
     if (!s_initialized) return;
 
     // Si le puzzle est terminé, gérer l'écran de fin
@@ -205,36 +190,77 @@ static void PoussePousse_Update(float dt) {
             s_finished = false;
             s_moveCount = 0;
             s_endScreen.wantsToReplay = false;
-            s_endScreen.wantsToExit = false;
-            // Ne pas return ici, continuer pour permettre de jouer
+            s_endScreen.wantsToExit   = false;
+            s_dragging  = false;
+            s_dragRow   = -1;
+            s_dragCol   = -1;
+            s_dragValue = 0;
         } else {
             return; // Ne pas permettre de jouer si on ne rejoue pas
         }
     }
 
-    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-        int tileSize, offX, offY;
-        GetBoardLayout(&tileSize, &offX, &offY);
+    int tileSize, offX, offY;
+    GetBoardLayout(&tileSize, &offX, &offY);
 
-        int mx = GetMouseX();
-        int my = GetMouseY();
+    int mx = GetMouseX();
+    int my = GetMouseY();
 
-        int boardSize = tileSize * SIZE;
-        if (mx >= offX && mx < offX + boardSize &&
-            my >= offY && my < offY + boardSize) {
+    int boardSize = tileSize * SIZE;
+    bool insideBoard =
+        (mx >= offX && mx < offX + boardSize &&
+         my >= offY && my < offY + boardSize);
 
-            int col = (mx - offX) / tileSize;
-            int row = (my - offY) / tileSize;
-            if (move_tile(&s_board, row, col)) {
-                s_moveCount++;
+    int col = -1, row = -1;
+    if (insideBoard) {
+        col = (mx - offX) / tileSize;
+        row = (my - offY) / tileSize;
+    }
+
+    // Démarrage du drag
+    if (!s_dragging && IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && insideBoard) {
+        if (can_move_tile(&s_board, row, col)) {
+            s_dragging  = true;
+            s_dragRow   = row;
+            s_dragCol   = col;
+            s_dragValue = s_board.grid[row][col];
+
+            // offset pour que la tuile "reste sous" la souris comme au départ
+            s_dragOffset.x = offX + col * tileSize - mx;
+            s_dragOffset.y = offY + row * tileSize - my;
+        }
+    }
+
+    // Fin du drag
+    if (s_dragging && IsMouseButtonReleased(MOUSE_LEFT_BUTTON)) {
+        if (insideBoard) {
+            int dstRow = row;
+            int dstCol = col;
+
+            if (dstRow >= 0 && dstRow < SIZE &&
+                dstCol >= 0 && dstCol < SIZE) {
+
+                // si on lâche sur une autre case -> échange
+                if (!(dstRow == s_dragRow && dstCol == s_dragCol)) {
+                    int tmp = s_board.grid[dstRow][dstCol];
+                    s_board.grid[dstRow][dstCol]     = s_dragValue;
+                    s_board.grid[s_dragRow][s_dragCol] = tmp;
+                    s_moveCount++;
+                }
             }
         }
+
+        s_dragging  = false;
+        s_dragRow   = -1;
+        s_dragCol   = -1;
+        s_dragValue = 0;
     }
 
     if (is_solved(&s_board)) {
         s_finished = true;
     }
 }
+
 // appelé à chaque frame pour dessiner
 static void PoussePousse_Draw(void) {
     if (!s_initialized) return;
@@ -252,31 +278,28 @@ static void PoussePousse_Draw(void) {
     int tileSize, offX, offY;
     GetBoardLayout(&tileSize, &offX, &offY);
 
-    DrawText("Puzzle pousse-pousse : clique sur une case voisine du vide",
+    DrawText("Puzzle 5x5 : fais glisser une piece (drag & drop) pour l'echanger",
              60, 40, 24, RAYWHITE);
     DrawText("Retour (Backspace) pour quitter", 60, 70, 20, LIGHTGRAY);
     DrawText(TextFormat("Coups : %d", s_moveCount),
              60, 100, 20, RAYWHITE);
     
-    // === Boucle qui dessine les 16 cases ===
+    // === Boucle qui dessine les 25 cases ===
+    Vector2 mouse = GetMousePosition();
+
     for (int row = 0; row < SIZE; ++row) {
         for (int col = 0; col < SIZE; ++col) {
 
             int x = offX + col * tileSize;
             int y = offY + row * tileSize;
-            int v = s_board.grid[row][col]; // valeur de 0 à 15
+            int v = s_board.grid[row][col]; // valeur 1..25
 
-            // --- CASE VIDE ---
-            if (v == 0) {
-                DrawRectangle(x, y, tileSize, tileSize, GRAY);    // fond gris
-                DrawRectangleLines(x, y, tileSize, tileSize, BLACK);
+            // Si cette case est celle actuellement en drag, on la dessinera plus tard
+            if (s_dragging && row == s_dragRow && col == s_dragCol)
                 continue;
-            }
 
-            // --- CASE AVEC IMAGE (1 → parfaite1.png, 2 → parfaite2.png, ...) ---
             if (s_tilesLoaded && v >= 1 && v <= TILE_COUNT) {
 
-                // On scale l’image pour remplir une case
                 float scale = (float)tileSize / s_tileTextures[v-1].width;
 
                 DrawTextureEx(
@@ -288,16 +311,37 @@ static void PoussePousse_Draw(void) {
                 );
 
                 DrawRectangleLines(x, y, tileSize, tileSize, BLACK); // contour
-
             } else {
                 // Si jamais texture manquante → on affiche le numéro (sécurité)
                 const char *txt = TextFormat("%d", v);
                 int fontSize = tileSize / 2;
                 int tw = MeasureText(txt, fontSize);
+                DrawRectangle(x, y, tileSize, tileSize, GRAY);
                 DrawText(txt, x + (tileSize - tw)/2, y + (tileSize - fontSize)/2, fontSize, BLACK);
                 DrawRectangleLines(x, y, tileSize, tileSize, BLACK);
             }
         }
+    }
+
+    // Dessiner la tuile en cours de drag au-dessus des autres
+    if (s_dragging && s_dragValue >= 1 && s_dragValue <= TILE_COUNT && s_tilesLoaded) {
+        float scale = (float)tileSize / s_tileTextures[s_dragValue - 1].width;
+
+        Vector2 pos = {
+            mouse.x + s_dragOffset.x,
+            mouse.y + s_dragOffset.y
+        };
+
+        DrawTextureEx(
+            s_tileTextures[s_dragValue - 1],
+            pos,
+            0.0f,
+            scale,
+            WHITE
+        );
+
+        // petit contour autour de la tuile drag
+        DrawRectangleLines((int)pos.x, (int)pos.y, tileSize, tileSize, YELLOW);
     }
 
     // Écran de fin
@@ -314,6 +358,10 @@ static void PoussePousse_Unload(void) {
         }
         s_tilesLoaded = false;
     }
+    if (s_bgLoaded) {
+        UnloadTexture(s_bgTexture);
+        s_bgLoaded = false;
+    }
     s_initialized = false;
 }
 
@@ -327,7 +375,7 @@ static bool PoussePousse_IsCompleted(int *coins) {
 
 // fonction utilisée par main.c pour récupérer les callbacks
 MinigameAPI GetMinigamePoussePousse(void) {
-    MinigameAPI api = {0};
+    MinigameAPI api = (MinigameAPI){0};
     api.init        = PoussePousse_Init;
     api.update      = PoussePousse_Update;
     api.draw        = PoussePousse_Draw;
