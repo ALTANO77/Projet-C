@@ -1,4 +1,13 @@
-// Gros Nounours 2D — squelette 2D (hub, déplacements, saut, interaction)
+// ============================================================================
+// GROS NOUNOURS 2D - Jeu principal
+// ============================================================================
+// Ce fichier contient la logique principale du jeu :
+// - Gestion des différents écrans (accueil, hub, zones, boutique, minijeux)
+// - Navigation entre les zones
+// - Gestion des minijeux
+// - Système de pièces et boutique
+// ============================================================================
+
 #include "raylib.h"
 #include <math.h>
 #include <stdio.h>
@@ -10,114 +19,144 @@
 #include "minigames/pendu/pendu.h"
 #include "minigames/boutique/boutique.h"
 
+// ============================================================================
+// TYPES ET STRUCTURES
+// ============================================================================
+
+// Énumération des différents états du jeu
+// Chaque état correspond à un écran différent
 typedef enum {
-    STATE_TITLE = 0,
-    STATE_HUB,
-    STATE_ZONE_JARDIN,
-    STATE_ZONE_CHAMBRE,
-    STATE_ZONE_GRENIER,
-    STATE_ZONE_CUISINE,
-    STATE_SHOP,
-    STATE_MINIJEU,
-    STATE_PAUSE
+    STATE_TITLE = 0,        // Écran d'accueil
+    STATE_HUB,              // Menu principal (hub)
+    STATE_ZONE_JARDIN,      // Zone du jardin (avant le minijeu Traffic)
+    STATE_ZONE_CHAMBRE,     // Zone de la chambre (avant le minijeu Puzzle)
+    STATE_ZONE_GRENIER,     // Zone du grenier (avant le minijeu Pendu)
+    STATE_ZONE_CUISINE,     // Zone de la cuisine (avant le minijeu Cerise)
+    STATE_SHOP,             // Boutique pour acheter des tenues
+    STATE_MINIJEU,          // Pendant qu'un minijeu est actif
+    STATE_PAUSE             // Écran de pause
 } GameState;
 
+// Identifiants des différentes zones du jeu
 typedef enum {
-    ZONE_NONE = -1,
-    ZONE_JARDIN = 0,
-    ZONE_CHAMBRE,
-    ZONE_GRENIER,
-    ZONE_CUISINE,
-    ZONE_COUNT
+    ZONE_NONE = -1,     // Aucune zone active
+    ZONE_JARDIN = 0,    // Zone du jardin
+    ZONE_CHAMBRE,       // Zone de la chambre
+    ZONE_GRENIER,       // Zone du grenier
+    ZONE_CUISINE,       // Zone de la cuisine
+    ZONE_COUNT          // Nombre total de zones (utilisé pour les tableaux)
 } ZoneId;
 
+// Structure pour stocker la progression d'une zone
+// Indique si le minijeu de cette zone a été complété
 typedef struct {
-    Vector2 position;
-    Vector2 velocity;
-    bool onGround;
-} Player;
-
-typedef struct {
-    bool completed;
+    bool completed;  // true si le minijeu de cette zone est terminé
 } ZoneProgress;
 
+// Structure pour stocker la position et taille d'un rectangle en pourcentage
+// Utilisé pour positionner les portails et le nounours de manière relative
+// (pour que ça s'adapte à différentes tailles d'écran)
 typedef struct {
-    float left;
-    float top;
-    float width;
-    float height;
+    float left;    // Position X en pourcentage (0.0 = gauche, 1.0 = droite)
+    float top;     // Position Y en pourcentage (0.0 = haut, 1.0 = bas)
+    float width;   // Largeur en pourcentage
+    float height;  // Hauteur en pourcentage
 } RectRatios;
 
+// Structure pour stocker la position et taille du nounours
 typedef struct {
-    float left;
-    float top;
-    float heightRatio;
+    float left;       // Position X en pourcentage
+    float top;        // Position Y en pourcentage
+    float heightRatio; // Hauteur en pourcentage de l'écran
 } BearLayout;
 
+// Structure principale du jeu contenant toutes les données
 typedef struct {
+    // État actuel du jeu
     GameState state;
-    Player player;
-    bool loggingEnabled;
-    int collectibles;
-    MinigameAPI currentMinigame;
-    const char *currentMinigameName;
-    bool minigameCompleted;
-    bool showCompletionPopup;
-    float completionPopupTimer;
-    float completionPopupDuration;
-    int pendingCoinsReward;
-    char completionPopupText[128];
-    int activeZone;
-    ZoneProgress progress[ZONE_COUNT];
-    Texture2D menuBackground;
-    Texture2D menuBear;
-    Texture2D titleBackground;
-    Texture2D titleBackgroundHover;
-    bool hasMenuBackground;
-    bool hasMenuBear;
+    int activeZone;  // Zone actuellement active (ZONE_NONE si aucune)
+    
+    // Progression du jeu
+    int collectibles;  // Nombre de pièces collectées
+    ZoneProgress progress[ZONE_COUNT];  // Progression de chaque zone
+    
+    // Minijeu actuel
+    MinigameAPI currentMinigame;  // Interface du minijeu en cours
+    bool minigameCompleted;  // true si le minijeu est complété
+    
+    // Textures du menu principal
+    Texture2D menuBackground;  // Fond du menu principal
+    Texture2D menuBear;  // Image du nounours par défaut
+    bool hasMenuBackground;  // true si la texture est chargée
+    bool hasMenuBear;  // true si la texture est chargée
+    
+    // Textures de l'écran d'accueil
+    Texture2D titleBackground;  // Fond d'accueil normal
+    Texture2D titleBackgroundHover;  // Fond d'accueil quand on survole la porte
     bool hasTitleBackground;
     bool hasTitleBackgroundHover;
-    Texture2D bearOutfits[5];  // Images nounours avec différentes tenues
-    bool hasBearOutfit[5];
-    int currentBearOutfit;  // Index de la tenue actuellement portée (-1 = départ)
+    
+    // Tenues du nounours (5 tenues différentes)
+    Texture2D bearOutfits[5];  // Images du nounours avec différentes tenues
+    bool hasBearOutfit[5];  // true si chaque tenue est chargée
+    int currentBearOutfit;  // Index de la tenue actuelle (-1 = tenue de départ)
+    
+    // Fonds des zones (affichés au survol des portails)
     Texture2D zoneBackgrounds[ZONE_COUNT];
     bool hasZoneBackground[ZONE_COUNT];
-    bool showDebugOverlay;
-    int draggingPortal;
-    bool draggingBear;
-    Vector2 dragOffset;
-    RectRatios portalLayouts[ZONE_COUNT];
-    BearLayout bearLayout;
-    int hoveredPortal;
-    Music music;
-    bool hasMusic;
-    bool musicMuted;
-    Texture2D soundOnIcon;
-    Texture2D soundOffIcon;
+    
+    // Mode debug (F2 pour activer)
+    bool showDebugOverlay;  // true pour afficher les rectangles des portails
+    int draggingPortal;  // Index du portail en train d'être déplacé (-1 si aucun)
+    bool draggingBear;  // true si on déplace le nounours
+    bool draggingShopPortal;  // true si on déplace le portail de la boutique
+    bool draggingTitleRect;  // true si on déplace le rectangle de l'écran d'accueil
+    Vector2 dragOffset;  // Offset pour le déplacement (pour éviter les sauts)
+    
+    // Positions des éléments (en pourcentage pour s'adapter à la taille d'écran)
+    RectRatios portalLayouts[ZONE_COUNT];  // Positions des portails des zones
+    RectRatios shopPortalLayout;  // Position du portail de la boutique
+    RectRatios titleRectLayout;  // Position du rectangle cliquable sur l'écran d'accueil
+    BearLayout bearLayout;  // Position et taille du nounours
+    
+    // Détection du survol
+    int hoveredPortal;  // Index du portail survolé (-1 si aucun)
+    
+    // Musique
+    Music music;  // Musique de fond
+    bool hasMusic;  // true si la musique est chargée
+    bool musicMuted;  // true si la musique est en pause
+    Texture2D soundOnIcon;  // Icône son activé
+    Texture2D soundOffIcon;  // Icône son désactivé
     bool hasSoundOnIcon;
     bool hasSoundOffIcon;
-    RectRatios shopPortalLayout;
-    bool draggingShopPortal;
-    RectRatios titleRectLayout;  // Rectangle unique pour l'écran d'accueil
-    bool draggingTitleRect;     // Flag pour déplacer le rectangle de l'écran d'accueil
-    Texture2D outfitPreview;
-    bool hasOutfitPreview;
-    Texture2D outfits[5];
-    bool hasOutfit[5];
-    const char *outfitNames[5];
-    int selectedOutfit;
-    int outfitPrices[5];
-    bool outfitOwned[5];
+    
+    // Données de la boutique (synchronisées avec le module boutique)
     BoutiqueData boutiqueData;
-    float inactivityTimer;  // Timer pour l'inactivité sur l'écran d'accueil
-    Vector2 lastMousePos;   // Dernière position de la souris pour détecter l'inactivité
+    Texture2D outfits[5];  // Textures des tenues dans la boutique
+    bool hasOutfit[5];
+    const char *outfitNames[5];  // Noms des tenues
+    int outfitPrices[5];  // Prix de chaque tenue
+    bool outfitOwned[5];  // true si chaque tenue est possédée
+    int selectedOutfit;  // Index de la tenue sélectionnée dans la boutique
+    Texture2D outfitPreview;  // Aperçu de la tenue
+    bool hasOutfitPreview;
+    
+    // Timer d'inactivité (pour afficher un message d'aide après 5 secondes)
+    float inactivityTimer;
 } Game;
 
+// Structure pour associer une zone à son nom d'affichage
 typedef struct {
-    ZoneId zone;
-    const char *label;
+    ZoneId zone;  // Identifiant de la zone
+    const char *label;  // Nom à afficher
 } HubPortalInfo;
 
+// ============================================================================
+// CONSTANTES
+// ============================================================================
+
+// Informations sur les portails du hub (zones cliquables)
 static const HubPortalInfo HUB_PORTALS[ZONE_COUNT] = {
     { ZONE_JARDIN,  "Jardin" },
     { ZONE_CHAMBRE, "Puzzle" },
@@ -125,276 +164,542 @@ static const HubPortalInfo HUB_PORTALS[ZONE_COUNT] = {
     { ZONE_CUISINE, "Cuisine" }
 };
 
+// Positions par défaut des portails (en pourcentage de l'écran)
+// Format: { gauche, haut, largeur, hauteur }
 static const RectRatios DEFAULT_PORTAL_LAYOUTS[ZONE_COUNT] = {
-    { 0.065f, 0.25f, 0.11f, 0.30f },
-    { 0.225f, 0.25f, 0.11f, 0.30f },
-    { 0.395f, 0.25f, 0.11f, 0.30f },
-    { 0.565f, 0.25f, 0.11f, 0.30f }
+    { 0.065f, 0.25f, 0.11f, 0.30f },  // Jardin
+    { 0.225f, 0.25f, 0.11f, 0.30f },  // Puzzle
+    { 0.395f, 0.25f, 0.11f, 0.30f },  // Bibliothèque
+    { 0.565f, 0.25f, 0.11f, 0.30f }   // Cuisine
 };
-static const RectRatios DEFAULT_SHOP_PORTAL = { 0.78f, 0.20f, 0.12f, 0.32f };
-static const RectRatios DEFAULT_TITLE_RECT = { 0.396f, 0.315f, 0.208f, 0.370f };  // Rectangle 400x400 pixels centré (sur écran 1920x1080)
 
+// Position par défaut du portail de la boutique
+static const RectRatios DEFAULT_SHOP_PORTAL = { 0.78f, 0.20f, 0.12f, 0.32f };
+
+// Position par défaut du rectangle cliquable sur l'écran d'accueil
+static const RectRatios DEFAULT_TITLE_RECT = { 0.396f, 0.315f, 0.208f, 0.370f };
+
+// Position par défaut du nounours
 static const BearLayout DEFAULT_BEAR_LAYOUT = { 0.021f, 0.113f, 0.85f };
+
+// Clés pour sauvegarder les positions dans le fichier de configuration
 static const char *PORTAL_KEYS[ZONE_COUNT] = { "jardin", "chambre", "grenier", "cuisine" };
+
+// Fichier de configuration pour sauvegarder les positions
 static const char *LAYOUT_FILE = "config/menu_layout.ini";
+
+// Fichiers des fonds de zones
 static const char *ZONE_BG_FILES[ZONE_COUNT] = {
     "assets/bg_jardin.png",
     "assets/bg_puzzle.png",
     "assets/bg_bibliotheque.png",
     "assets/bg_cuisine.png"
 };
-static const float MINIGAME_POPUP_DURATION = 3.0f;
 
-static void prepareMinigameSession(Game *g, MinigameAPI api, const char *prettyName);
+// ============================================================================
+// DÉCLARATIONS DE FONCTIONS
+// ============================================================================
+
+static void prepareMinigameSession(Game *g, MinigameAPI api);
 static void finalizeMinigame(Game *g);
-
-static float clampf(float v, float lo, float hi) {
-    return v < lo ? lo : (v > hi ? hi : v);
-}
-
 static Rectangle computeBearRect(const Game *g);
 static Rectangle computePortalRect(const Game *g, int idx);
+static Rectangle computeShopPortalRect(const Game *g);
+static Rectangle computeTitleRect(const Game *g);
 static void clampBearToScreen(Game *g);
 
+// ============================================================================
+// FONCTIONS UTILITAIRES
+// ============================================================================
+
+// Limite une valeur entre un minimum et un maximum
+// Exemple: clampf(15, 10, 20) retourne 15, clampf(5, 10, 20) retourne 10
+static float clampf(float v, float lo, float hi) {
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+}
+
+// Dessine un texte centré horizontalement
+// txt: le texte à afficher
+// y: position verticale
+// size: taille de la police
+// c: couleur du texte
 static void drawCentered(const char *txt, int y, int size, Color c) {
-    int w = MeasureText(txt, size);
-    DrawText(txt, (GetScreenWidth() - w)/2, y, size, c);
+    int textWidth = MeasureText(txt, size);
+    int screenWidth = GetScreenWidth();
+    int x = (screenWidth - textWidth) / 2;  // Centrer horizontalement
+    DrawText(txt, x, y, size, c);
 }
 
-static void resetPlayer(Player *p) {
-    p->position = (Vector2){ 160, 420 };
-    p->velocity = (Vector2){ 0, 0 };
-    p->onGround = false;
-}
-
+// Dessine un sol simple (utilisé si aucune texture de fond n'est chargée)
 static void drawGround(void) {
-    DrawRectangle(0, 480, GetScreenWidth(), GetScreenHeight() - 480, (Color){ 60, 100, 60, 255 });
-    DrawRectangle(0, 460, GetScreenWidth(), 20, (Color){ 90, 60, 40, 255 });
+    int screenHeight = GetScreenHeight();
+    int screenWidth = GetScreenWidth();
+    
+    // Herbe (vert)
+    DrawRectangle(0, 480, screenWidth, screenHeight - 480, (Color){ 60, 100, 60, 255 });
+    // Terre (marron)
+    DrawRectangle(0, 460, screenWidth, 20, (Color){ 90, 60, 40, 255 });
 }
 
+// Charge une texture depuis un fichier si elle existe
+// Retourne une texture vide si le fichier n'existe pas
 static Texture2D loadTextureIfAvailable(const char *path) {
-    Texture2D tex = {0};
-    if (!FileExists(path)) return tex;
+    Texture2D tex = {0};  // Texture vide par défaut
+    
+    // Vérifier si le fichier existe
+    if (!FileExists(path)) {
+        return tex;  // Retourner une texture vide
+    }
+    
+    // Charger l'image
     Image img = LoadImage(path);
     if (img.data) {
+        // Convertir l'image en texture
         tex = LoadTextureFromImage(img);
-        UnloadImage(img);
+        UnloadImage(img);  // Libérer l'image (on n'a besoin que de la texture)
     }
+    
     return tex;
 }
 
-static void prepareMinigameSession(Game *g, MinigameAPI api, const char *prettyName) {
+// ============================================================================
+// GESTION DES MINIJEUX
+// ============================================================================
+
+// Prépare le lancement d'un minijeu
+// g: structure du jeu
+// api: interface du minijeu à lancer
+static void prepareMinigameSession(Game *g, MinigameAPI api) {
+    // Enregistrer le minijeu
     g->currentMinigame = api;
-    g->currentMinigameName = prettyName;
     g->minigameCompleted = false;
-    g->showCompletionPopup = false;
-    g->pendingCoinsReward = 0;
-    g->completionPopupTimer = 0.0f;
-    g->completionPopupDuration = MINIGAME_POPUP_DURATION;
-    g->completionPopupText[0] = '\0';
-    if (g->currentMinigame.init) g->currentMinigame.init();
+    
+    // Initialiser le minijeu s'il a une fonction d'initialisation
+    if (g->currentMinigame.init) {
+        g->currentMinigame.init();
+    }
+    
+    // Passer à l'état minijeu
     g->state = STATE_MINIJEU;
 }
 
-// Fonction supprimée - les minijeux gèrent maintenant leur propre écran de fin
-
+// Finalise un minijeu (quand on le quitte)
 static void finalizeMinigame(Game *g) {
-    g->collectibles += g->pendingCoinsReward;
+    // Marquer la zone comme complétée
     if (g->activeZone >= 0 && g->activeZone < ZONE_COUNT) {
         g->progress[g->activeZone].completed = true;
     }
-    if (g->currentMinigame.unload) g->currentMinigame.unload();
+    
+    // Nettoyer le minijeu
+    if (g->currentMinigame.unload) {
+        g->currentMinigame.unload();
+    }
+    
+    // Réinitialiser les données du minijeu
     g->currentMinigame = (MinigameAPI){0};
-    g->currentMinigameName = NULL;
-    g->pendingCoinsReward = 0;
     g->minigameCompleted = false;
-    g->showCompletionPopup = false;
-    g->completionPopupTimer = 0.0f;
-    g->completionPopupDuration = MINIGAME_POPUP_DURATION;
-    g->completionPopupText[0] = '\0';
+    
+    // Retourner au hub
     g->state = STATE_HUB;
     g->activeZone = ZONE_NONE;
 }
 
+// ============================================================================
+// GESTION DES POSITIONS (LAYOUT)
+// ============================================================================
+
+// Initialise les positions avec les valeurs par défaut
 static void initDefaultLayout(Game *g) {
-    for (int i = 0; i < ZONE_COUNT; ++i) g->portalLayouts[i] = DEFAULT_PORTAL_LAYOUTS[i];
+    // Copier les positions par défaut des portails
+    for (int i = 0; i < ZONE_COUNT; ++i) {
+        g->portalLayouts[i] = DEFAULT_PORTAL_LAYOUTS[i];
+    }
+    
+    // Positions par défaut pour le nounours, la boutique et l'écran d'accueil
     g->bearLayout = DEFAULT_BEAR_LAYOUT;
     g->shopPortalLayout = DEFAULT_SHOP_PORTAL;
     g->titleRectLayout = DEFAULT_TITLE_RECT;
     g->draggingTitleRect = false;
 }
 
+// Trouve l'index d'un portail à partir de son nom
+// Retourne -1 si le nom n'est pas trouvé
 static int portalIndexFromName(const char *name) {
     for (int i = 0; i < ZONE_COUNT; ++i) {
-        if (strcmp(name, PORTAL_KEYS[i]) == 0) return i;
+        if (strcmp(name, PORTAL_KEYS[i]) == 0) {
+            return i;
+        }
     }
     return -1;
 }
 
+// Limite les valeurs d'un rectangle pour qu'il reste dans l'écran
 static void clampPortalLayout(RectRatios *r) {
+    // Limiter la taille (entre 2% et 100% de l'écran)
     r->width = clampf(r->width, 0.02f, 1.0f);
     r->height = clampf(r->height, 0.02f, 1.0f);
+    
+    // Limiter la position pour que le rectangle reste dans l'écran
     r->left = clampf(r->left, 0.0f, 1.0f - r->width);
     r->top = clampf(r->top, 0.0f, 1.0f - r->height);
 }
 
+// Limite les valeurs de la position du nounours
 static void clampBearLayout(BearLayout *b) {
     b->heightRatio = clampf(b->heightRatio, 0.1f, 1.0f);
     b->left = clampf(b->left, 0.0f, 1.0f);
     b->top = clampf(b->top, 0.0f, 1.0f - b->heightRatio);
 }
 
+// Charge les positions depuis le fichier de configuration
+// Si le fichier n'existe pas, utilise les valeurs par défaut
 static void loadMenuLayout(Game *g) {
+    // D'abord, initialiser avec les valeurs par défaut
     initDefaultLayout(g);
+    
+    // Essayer d'ouvrir le fichier de configuration
     FILE *f = fopen(LAYOUT_FILE, "r");
-    if (!f) return;
+    if (!f) {
+        return;  // Pas de fichier, on garde les valeurs par défaut
+    }
+    
+    // Lire le fichier ligne par ligne
     char line[256];
     while (fgets(line, sizeof(line), f)) {
-        if (line[0] == '#' || line[0] == '\n') continue;
+        // Ignorer les commentaires et lignes vides
+        if (line[0] == '#' || line[0] == '\n') {
+            continue;
+        }
+        
         char key[64];
         float left, top, width, height;
+        
+        // Lire une position de portail
+        // Format: "portal_jardin=0.065,0.25,0.11,0.30"
         if (sscanf(line, "portal_%63[^=]=%f,%f,%f,%f", key, &left, &top, &width, &height) == 5) {
             int idx = portalIndexFromName(key);
             if (idx >= 0) {
+                // Portail de zone trouvé
                 g->portalLayouts[idx] = (RectRatios){ left, top, width, height };
                 clampPortalLayout(&g->portalLayouts[idx]);
             } else if (strcmp(key, "shop") == 0) {
+                // Portail de la boutique
                 g->shopPortalLayout = (RectRatios){ left, top, width, height };
                 clampPortalLayout(&g->shopPortalLayout);
             }
-        } else if (sscanf(line, "bear=%f,%f,%f", &left, &top, &height) == 3) {
+        }
+        // Lire la position du nounours
+        // Format: "bear=0.021,0.113,0.85"
+        else if (sscanf(line, "bear=%f,%f,%f", &left, &top, &height) == 3) {
             g->bearLayout = (BearLayout){ left, top, height };
             clampBearLayout(&g->bearLayout);
         }
     }
+    
     fclose(f);
     clampBearToScreen(g);
 }
 
+// Sauvegarde les positions dans le fichier de configuration
 static void saveMenuLayout(const Game *g) {
     FILE *f = fopen(LAYOUT_FILE, "w");
-    if (!f) return;
+    if (!f) {
+        return;  // Impossible d'écrire, on abandonne
+    }
+    
+    // Sauvegarder les positions des portails de zones
     for (int i = 0; i < ZONE_COUNT; ++i) {
         const RectRatios *r = &g->portalLayouts[i];
-        fprintf(f, "portal_%s=%.5f,%.5f,%.5f,%.5f\n", PORTAL_KEYS[i], r->left, r->top, r->width, r->height);
+        fprintf(f, "portal_%s=%.5f,%.5f,%.5f,%.5f\n",
+                PORTAL_KEYS[i], r->left, r->top, r->width, r->height);
     }
-    fprintf(f, "portal_shop=%.5f,%.5f,%.5f,%.5f\n", g->shopPortalLayout.left, g->shopPortalLayout.top, g->shopPortalLayout.width, g->shopPortalLayout.height);
-    fprintf(f, "bear=%.5f,%.5f,%.5f\n", g->bearLayout.left, g->bearLayout.top, g->bearLayout.heightRatio);
+    
+    // Sauvegarder la position du portail de la boutique
+    fprintf(f, "portal_shop=%.5f,%.5f,%.5f,%.5f\n",
+            g->shopPortalLayout.left, g->shopPortalLayout.top,
+            g->shopPortalLayout.width, g->shopPortalLayout.height);
+    
+    // Sauvegarder la position du nounours
+    fprintf(f, "bear=%.5f,%.5f,%.5f\n",
+            g->bearLayout.left, g->bearLayout.top, g->bearLayout.heightRatio);
+    
     fclose(f);
 }
+git config --global user.name ValentinDayon
+// ============================================================================
+// CALCUL DES RECTANGLES
+// ============================================================================
 
+// Calcule le rectangle d'un portail de zone en pixels
+// Convertit les pourcentages en coordonnées réelles
+static Rectangle computePortalRect(const Game *g, int idx) {
+    float screenWidth = (float)GetScreenWidth();
+    float screenHeight = (float)GetScreenHeight();
+    RectRatios layout = g->portalLayouts[idx];
+    
+    return (Rectangle){
+        layout.left * screenWidth,      // X en pixels
+        layout.top * screenHeight,      // Y en pixels
+        layout.width * screenWidth,     // Largeur en pixels
+        layout.height * screenHeight    // Hauteur en pixels
+    };
+}
+
+// Calcule le rectangle du portail de la boutique
+static Rectangle computeShopPortalRect(const Game *g) {
+    float screenWidth = (float)GetScreenWidth();
+    float screenHeight = (float)GetScreenHeight();
+    RectRatios layout = g->shopPortalLayout;
+    
+    return (Rectangle){
+        layout.left * screenWidth,
+        layout.top * screenHeight,
+        layout.width * screenWidth,
+        layout.height * screenHeight
+    };
+}
+
+// Calcule le rectangle cliquable de l'écran d'accueil
+static Rectangle computeTitleRect(const Game *g) {
+    float screenWidth = (float)GetScreenWidth();
+    float screenHeight = (float)GetScreenHeight();
+    RectRatios layout = g->titleRectLayout;
+    
+    return (Rectangle){
+        layout.left * screenWidth,
+        layout.top * screenHeight,
+        layout.width * screenWidth,
+        layout.height * screenHeight
+    };
+}
+
+// Calcule le ratio de largeur du nounours (pour le positionnement)
+static float getBearWidthRatio(const Game *g) {
+    // Si pas de texture, retourner une valeur par défaut
+    if (!g->hasMenuBear || g->menuBear.height == 0 || g->menuBear.width == 0) {
+        return 0.2f;
+    }
+    
+    // Calculer le ratio largeur/hauteur de l'image
+    float aspect = (float)g->menuBear.width / (float)g->menuBear.height;
+    
+    // Prendre en compte le ratio de l'écran
+    float screenRatio = (float)GetScreenHeight() / (float)GetScreenWidth();
+    
+    // Retourner le ratio de largeur
+    return g->bearLayout.heightRatio * aspect * screenRatio;
+}
+
+// Calcule le rectangle du nounours en pixels
+static Rectangle computeBearRect(const Game *g) {
+    // Choisir la texture à utiliser (tenue actuelle ou par défaut)
+    Texture2D bearTex = g->menuBear;
+    bool hasBear = g->hasMenuBear;
+    
+    // Si une tenue est sélectionnée, utiliser cette image
+    if (g->currentBearOutfit >= 0 && g->currentBearOutfit < 5 && g->hasBearOutfit[g->currentBearOutfit]) {
+        bearTex = g->bearOutfits[g->currentBearOutfit];
+        hasBear = true;
+    }
+    
+    // Si pas de texture, retourner un rectangle vide
+    if (!hasBear) {
+        return (Rectangle){ 0 };
+    }
+    
+    // Calculer les dimensions
+    float screenHeight = (float)GetScreenHeight();
+    float screenWidth = (float)GetScreenWidth();
+    float bearHeight = g->bearLayout.heightRatio * screenHeight;
+    
+    // Calculer la largeur en gardant les proportions de l'image
+    float aspect = bearTex.height > 0 ? (float)bearTex.width / (float)bearTex.height : 1.0f;
+    float bearWidth = bearHeight * aspect;
+    
+    return (Rectangle){
+        g->bearLayout.left * screenWidth,  // X
+        g->bearLayout.top * screenHeight,   // Y
+        bearWidth,                          // Largeur
+        bearHeight                          // Hauteur
+    };
+}
+
+// Assure que le nounours reste dans l'écran
+static void clampBearToScreen(Game *g) {
+    float widthRatio = clampf(getBearWidthRatio(g), 0.0f, 0.99f);
+    g->bearLayout.left = clampf(g->bearLayout.left, 0.0f, 1.0f - widthRatio);
+    g->bearLayout.top = clampf(g->bearLayout.top, 0.0f, 1.0f - g->bearLayout.heightRatio);
+}
+
+// ============================================================================
+// AFFICHAGE
+// ============================================================================
+
+// Dessine le fond du menu principal
+// Change le fond si on survole un portail (affiche le fond de la zone)
 static void drawMenuBackground(const Game *g) {
     const Texture2D *tex = &g->menuBackground;
-    if (g->hoveredPortal >= 0 && g->hoveredPortal < ZONE_COUNT && g->hasZoneBackground[g->hoveredPortal]) {
+    
+    // Si on survole un portail, afficher le fond de cette zone
+    if (g->hoveredPortal >= 0 && g->hoveredPortal < ZONE_COUNT && g->
+        hasZoneBackground[g->hoveredPortal]) {
         tex = &g->zoneBackgrounds[g->hoveredPortal];
     }
-
+    
+    // Afficher la texture si elle existe
     if (tex->id != 0) {
         Rectangle src = { 0, 0, (float)tex->width, (float)tex->height };
         Rectangle dst = { 0, 0, (float)GetScreenWidth(), (float)GetScreenHeight() };
         DrawTexturePro(*tex, src, dst, (Vector2){ 0, 0 }, 0.0f, WHITE);
     } else {
+        // Sinon, dessiner un sol simple
         drawGround();
     }
 }
 
+// Dessine le nounours en gros plan
 static void drawBearCloseup(const Game *g) {
+    // Choisir la texture à utiliser
     Texture2D bearToDraw = g->menuBear;
     bool hasBear = g->hasMenuBear;
     
-    // Si une tenue est sélectionnée et disponible, utiliser cette image
-    if (g->currentBearOutfit >= 0 && g->currentBearOutfit < 5 && g->hasBearOutfit[g->currentBearOutfit]) {
+    // Si une tenue est sélectionnée, utiliser cette image
+    if (g->currentBearOutfit >= 0 && g->currentBearOutfit < 5 
+        && g->hasBearOutfit[g->currentBearOutfit]) {
         bearToDraw = g->bearOutfits[g->currentBearOutfit];
         hasBear = true;
     }
     
-    if (!hasBear) return;
+    // Si pas de texture, ne rien afficher
+    if (!hasBear) {
+        return;
+    }
+    
+    // Calculer où afficher le nounours
     Rectangle dst = computeBearRect(g);
-    if (dst.width <= 0 || dst.height <= 0) return;
+    if (dst.width <= 0 || dst.height <= 0) {
+        return;  // Rectangle invalide
+    }
+    
+    // Afficher la texture
     Rectangle src = { 0, 0, (float)bearToDraw.width, (float)bearToDraw.height };
     DrawTexturePro(bearToDraw, src, dst, (Vector2){ 0, 0 }, 0.0f, WHITE);
 }
 
+// Dessine le tableau montrant l'état des minijeux (terminé ou non)
 static void drawMinigameStatusTable(const Game *g) {
     static const char *zoneLabels[ZONE_COUNT] = { "Jardin", "Puzzle", "Bibliothèque", "Cuisine" };
+    
+    // Position et taille du tableau
     const float tableX = 60.0f;
     const float tableY = 780.0f;
     const float rowHeight = 42.0f;
     const float tableWidth = 460.0f;
     const float tableHeight = rowHeight * (ZONE_COUNT + 1);
-
-    DrawRectangleRounded((Rectangle){ tableX - 10, tableY - 20, tableWidth + 20, tableHeight + 30 }, 0.08f, 6, (Color){ 0, 0, 0, 160 });
+    
+    // Fond du tableau (semi-transparent)
+    DrawRectangleRounded((Rectangle){ tableX - 10, tableY - 20, tableWidth + 20, tableHeight + 30 },
+                         0.08f, 6, (Color){ 0, 0, 0, 160 });
+    
+    // Titre
     DrawText("Etat des mini-jeux", (int)tableX, (int)tableY - 10, 26, RAYWHITE);
-
+    
+    // Ligne de séparation
     DrawLine(tableX, tableY + 18, tableX + tableWidth, tableY + 18, LIGHTGRAY);
     DrawText("Statut", (int)(tableX + tableWidth - 150), (int)tableY + 28, 22, LIGHTGRAY);
-
+    
+    // Afficher chaque zone
     for (int i = 0; i < ZONE_COUNT; ++i) {
         float rowY = tableY + 28 + rowHeight * (i + 1);
         const char *status = g->progress[i].completed ? "Terminée" : "Non fait";
+        Color statusColor = g->progress[i].completed ? 
+            (Color){ 120, 230, 140, 255 } :  // Vert si terminé
+            (Color){ 255, 210, 120, 255 };   // Orange si non fait
+        
         DrawText(zoneLabels[i], (int)tableX, (int)rowY, 22, RAYWHITE);
-        DrawText(status, (int)(tableX + tableWidth - 150), (int)rowY, 22, g->progress[i].completed ? (Color){ 120, 230, 140, 255 } : (Color){ 255, 210, 120, 255 });
+        DrawText(status, (int)(tableX + tableWidth - 150), (int)rowY, 22, statusColor);
     }
 }
 
+// Dessine le compteur de pièces en haut à droite
 static void drawCoinCounter(const Game *g) {
     const char *label = TextFormat("Pieces : %d", g->collectibles);
     int fontSize = 30;
     int textWidth = MeasureText(label, fontSize);
     int padding = 18;
+    
+    // Calculer la position du rectangle (en haut à droite)
     Rectangle box = {
         GetScreenWidth() - textWidth - padding * 2 - 40,
         30,
         (float)textWidth + padding * 2,
         50
     };
+    
+    // Fond semi-transparent
     DrawRectangleRounded(box, 0.12f, 6, (Color){ 0, 0, 0, 160 });
+    
+    // Texte
     DrawText(label, (int)(box.x + padding), (int)(box.y + 12), fontSize, GOLD);
 }
 
-// Fonction supprimée - les minijeux gèrent maintenant leur propre écran de fin
-
+// Calcule le rectangle du bouton de musique
 static Rectangle getMusicButtonRect(void) {
-    float sw = (float)GetScreenWidth();
-    float sh = (float)GetScreenHeight();
-
-    // Taille et marge proportionnelles à la taille de la fenêtre
-    float base = fminf(sw, sh);
-    float size = base * 0.05f;      // ~5% du plus petit côté
-    if (size < 32.0f) size = 32.0f; // limite minimale
-    if (size > 96.0f) size = 96.0f; // limite maximale
+    float screenWidth = (float)GetScreenWidth();
+    float screenHeight = (float)GetScreenHeight();
+    
+    // Taille proportionnelle à la fenêtre (5% du plus petit côté)
+    float base = fminf(screenWidth, screenHeight);
+    float size = base * 0.05f;
+    
+    // Limites min/max
+    if (size < 32.0f) size = 32.0f;
+    if (size > 96.0f) size = 96.0f;
+    
     float margin = size * 0.5f;
-
+    
+    // Position en bas à droite
     return (Rectangle){
-        sw - size - margin,
-        sh - size - margin,
+        screenWidth - size - margin,
+        screenHeight - size - margin,
         size,
         size
     };
 }
 
+// Dessine le bouton pour activer/désactiver la musique
 static void drawMusicButton(const Game *g) {
-    if (!g->hasMusic) return;
+    if (!g->hasMusic) {
+        return;  // Pas de musique, pas de bouton
+    }
+    
     Rectangle r = getMusicButtonRect();
     Vector2 mouse = GetMousePosition();
     bool hover = CheckCollisionPointRec(mouse, r);
-
-    // Fond clair plutôt que noir
+    
+    // Couleurs
     Color bg = (Color){ 245, 245, 245, hover ? 255 : 230 };
     Color border = (Color){ 60, 60, 60, 220 };
-
+    
+    // Fond du bouton
     DrawRectangleRounded(r, 0.4f, 6, bg);
     DrawRectangleRoundedLines(r, 0.4f, 6, border);
-
-    // Si des icônes personnalisées sont présentes, on les utilise
+    
+    // Choisir l'icône à afficher
     const Texture2D *iconTex = NULL;
-    if (!g->musicMuted && g->hasSoundOnIcon) iconTex = &g->soundOnIcon;
-    if (g->musicMuted && g->hasSoundOffIcon) iconTex = &g->soundOffIcon;
-
+    if (!g->musicMuted && g->hasSoundOnIcon) {
+        iconTex = &g->soundOnIcon;
+    }
+    if (g->musicMuted && g->hasSoundOffIcon) {
+        iconTex = &g->soundOffIcon;
+    }
+    
+    // Afficher l'icône si disponible
     if (iconTex && iconTex->id != 0) {
         Rectangle src = { 0, 0, (float)iconTex->width, (float)iconTex->height };
-        // On laisse une petite marge à l’intérieur du bouton
-        float pad = r.width * 0.15f;
+        float pad = r.width * 0.15f;  // Marge à l'intérieur
         Rectangle dst = {
             r.x + pad,
             r.y + pad,
@@ -403,13 +708,17 @@ static void drawMusicButton(const Game *g) {
         };
         DrawTexturePro(*iconTex, src, dst, (Vector2){ 0, 0 }, 0.0f, WHITE);
     } else {
-        // Fallback : petit pictogramme simple si pas d’icône personnalisée
-        Color iconColor = g->musicMuted ? (Color){ 220, 80, 80, 255 } : (Color){ 120, 220, 140, 255 };
+        // Sinon, dessiner un pictogramme simple
+        Color iconColor = g->musicMuted ? 
+            (Color){ 220, 80, 80, 255 } :    // Rouge si muet
+            (Color){ 120, 220, 140, 255 };   // Vert si actif
+        
         float cx = r.x + r.width * 0.5f;
         float cy = r.y + r.height * 0.5f;
         float w = r.width * 0.35f;
         float h = r.height * 0.30f;
-
+        
+        // Dessiner un haut-parleur simple
         DrawTriangle(
             (Vector2){ cx - w * 0.6f, cy - h * 0.6f },
             (Vector2){ cx - w * 0.6f, cy + h * 0.6f },
@@ -421,6 +730,8 @@ static void drawMusicButton(const Game *g) {
             (Vector2){ w * 0.4f, h * 0.8f },
             iconColor
         );
+        
+        // Si muet, dessiner une croix
         if (g->musicMuted) {
             DrawLineEx(
                 (Vector2){ cx + w * 0.2f, cy - h * 0.7f },
@@ -435,90 +746,20 @@ static void drawMusicButton(const Game *g) {
                 iconColor
             );
         } else {
+            // Sinon, dessiner des ondes sonores
             DrawCircleLines((int)(cx + w * 0.6f), (int)cy, (int)(h * 0.9f), iconColor);
         }
     }
 }
 
-static Rectangle computePortalRect(const Game *g, int idx) {
-    float sw = (float)GetScreenWidth();
-    float sh = (float)GetScreenHeight();
-    RectRatios layout = g->portalLayouts[idx];
-    return (Rectangle){
-        layout.left * sw,
-        layout.top * sh,
-        layout.width * sw,
-        layout.height * sh
-    };
-}
 
-static Rectangle computeShopPortalRect(const Game *g) {
-    float sw = (float)GetScreenWidth();
-    float sh = (float)GetScreenHeight();
-    RectRatios layout = g->shopPortalLayout;
-    return (Rectangle){
-        layout.left * sw,
-        layout.top * sh,
-        layout.width * sw,
-        layout.height * sh
-    };
-}
+// ============================================================================
+// MODE DEBUG
+// ============================================================================
 
-static Rectangle computeTitleRect(const Game *g) {
-    float sw = (float)GetScreenWidth();
-    float sh = (float)GetScreenHeight();
-    RectRatios layout = g->titleRectLayout;
-    return (Rectangle){
-        layout.left * sw,
-        layout.top * sh,
-        layout.width * sw,
-        layout.height * sh
-    };
-}
-
-static Rectangle computeBearRect(const Game *g) {
-    Texture2D bearTex = g->menuBear;
-    bool hasBear = g->hasMenuBear;
-    
-    // Utiliser la texture de la tenue sélectionnée si disponible
-    if (g->currentBearOutfit >= 0 && g->currentBearOutfit < 5 && g->hasBearOutfit[g->currentBearOutfit]) {
-        bearTex = g->bearOutfits[g->currentBearOutfit];
-        hasBear = true;
-    }
-    
-    if (!hasBear) return (Rectangle){ 0 };
-    float sh = (float)GetScreenHeight();
-    float sw = (float)GetScreenWidth();
-    float bearHeight = g->bearLayout.heightRatio * sh;
-    float aspect = bearTex.height > 0 ? (float)bearTex.width / (float)bearTex.height : 1.0f;
-    float bearWidth = bearHeight * aspect;
-    return (Rectangle){
-        g->bearLayout.left * sw,
-        g->bearLayout.top * sh,
-        bearWidth,
-        bearHeight
-    };
-}
-
-static float getBearWidthRatio(const Game *g) {
-    if (!g->hasMenuBear || g->menuBear.height == 0 || g->menuBear.width == 0) return 0.2f;
-    float aspect = (float)g->menuBear.width / (float)g->menuBear.height;
-    float screenRatio = (float)GetScreenHeight() / (float)GetScreenWidth();
-    return g->bearLayout.heightRatio * aspect * screenRatio;
-}
-
-static void clampBearToScreen(Game *g) {
-    float widthRatio = clampf(getBearWidthRatio(g), 0.0f, 0.99f);
-    g->bearLayout.left = clampf(g->bearLayout.left, 0.0f, 1.0f - widthRatio);
-    g->bearLayout.top = clampf(g->bearLayout.top, 0.0f, 1.0f - g->bearLayout.heightRatio);
-}
-
-static void drawPortalHighlights(const Game *g) {
-    // Plus rien n'est affiché au survol des portails
-    (void)g; // Éviter l'avertissement de variable non utilisée
-}
-
+// Gère le déplacement des éléments en mode debug (F2)
 static void handleDebugDragging(Game *g) {
+    // Si le mode debug est désactivé, réinitialiser tout
     if (!g->showDebugOverlay) {
         g->draggingPortal = -1;
         g->draggingBear = false;
@@ -526,15 +767,17 @@ static void handleDebugDragging(Game *g) {
         g->draggingTitleRect = false;
         return;
     }
-
+    
     Vector2 mouse = GetMousePosition();
+    
+    // Détecter le début du clic
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
         g->draggingPortal = -1;
         g->draggingBear = false;
         g->draggingShopPortal = false;
         g->draggingTitleRect = false;
         
-        // Sur l'écran d'accueil, on ne gère que le rectangle unique
+        // Sur l'écran d'accueil, gérer uniquement le rectangle
         if (g->state == STATE_TITLE) {
             Rectangle titleRect = computeTitleRect(g);
             if (CheckCollisionPointRec(mouse, titleRect)) {
@@ -542,7 +785,8 @@ static void handleDebugDragging(Game *g) {
                 g->dragOffset = (Vector2){ mouse.x - titleRect.x, mouse.y - titleRect.y };
             }
         } else {
-            // Logique normale pour le hub
+            // Dans le hub, gérer les portails, la boutique et le nounours
+            // Vérifier les portails de zones
             for (int i = 0; i < ZONE_COUNT; ++i) {
                 Rectangle rect = computePortalRect(g, i);
                 if (CheckCollisionPointRec(mouse, rect)) {
@@ -551,6 +795,8 @@ static void handleDebugDragging(Game *g) {
                     break;
                 }
             }
+            
+            // Vérifier le portail de la boutique
             if (g->draggingPortal == -1) {
                 Rectangle shopRect = computeShopPortalRect(g);
                 if (CheckCollisionPointRec(mouse, shopRect)) {
@@ -558,6 +804,8 @@ static void handleDebugDragging(Game *g) {
                     g->dragOffset = (Vector2){ mouse.x - shopRect.x, mouse.y - shopRect.y };
                 }
             }
+            
+            // Vérifier le nounours
             if (!g->draggingShopPortal && g->draggingPortal == -1 && g->hasMenuBear) {
                 Rectangle bearRect = computeBearRect(g);
                 if (bearRect.width > 0 && CheckCollisionPointRec(mouse, bearRect)) {
@@ -567,32 +815,39 @@ static void handleDebugDragging(Game *g) {
             }
         }
     }
-
+    
+    // Pendant le déplacement
     if (IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
-        float sw = (float)GetScreenWidth();
-        float sh = (float)GetScreenHeight();
+        float screenWidth = (float)GetScreenWidth();
+        float screenHeight = (float)GetScreenHeight();
+        
         if (g->draggingTitleRect) {
+            // Déplacer le rectangle de l'écran d'accueil
             RectRatios *layout = &g->titleRectLayout;
-            layout->left = (mouse.x - g->dragOffset.x) / sw;
-            layout->top = (mouse.y - g->dragOffset.y) / sh;
+            layout->left = (mouse.x - g->dragOffset.x) / screenWidth;
+            layout->top = (mouse.y - g->dragOffset.y) / screenHeight;
             clampPortalLayout(layout);
         } else if (g->draggingPortal >= 0) {
+            // Déplacer un portail de zone
             RectRatios *layout = &g->portalLayouts[g->draggingPortal];
-            layout->left = (mouse.x - g->dragOffset.x) / sw;
-            layout->top = (mouse.y - g->dragOffset.y) / sh;
+            layout->left = (mouse.x - g->dragOffset.x) / screenWidth;
+            layout->top = (mouse.y - g->dragOffset.y) / screenHeight;
             clampPortalLayout(layout);
         } else if (g->draggingShopPortal) {
+            // Déplacer le portail de la boutique
             RectRatios *layout = &g->shopPortalLayout;
-            layout->left = (mouse.x - g->dragOffset.x) / sw;
-            layout->top = (mouse.y - g->dragOffset.y) / sh;
+            layout->left = (mouse.x - g->dragOffset.x) / screenWidth;
+            layout->top = (mouse.y - g->dragOffset.y) / screenHeight;
             clampPortalLayout(layout);
         } else if (g->draggingBear) {
+            // Déplacer le nounours
             float widthRatio = clampf(getBearWidthRatio(g), 0.0f, 0.99f);
-            g->bearLayout.left = clampf((mouse.x - g->dragOffset.x) / sw, 0.0f, 1.0f - widthRatio);
-            g->bearLayout.top = clampf((mouse.y - g->dragOffset.y) / sh, 0.0f, 1.0f - g->bearLayout.heightRatio);
+            g->bearLayout.left = clampf((mouse.x - g->dragOffset.x) / screenWidth, 0.0f, 1.0f - widthRatio);
+            g->bearLayout.top = clampf((mouse.y - g->dragOffset.y) / screenHeight, 0.0f, 1.0f - g->bearLayout.heightRatio);
         }
     }
-
+    
+    // Fin du clic
     if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON)) {
         g->draggingPortal = -1;
         g->draggingBear = false;
@@ -601,30 +856,45 @@ static void handleDebugDragging(Game *g) {
     }
 }
 
+// Affiche les informations de debug (rectangles des portails, position de la souris)
 static void drawDebugOverlay(const Game *g) {
-    if (!g->showDebugOverlay) return;
+    if (!g->showDebugOverlay) {
+        return;
+    }
+    
     Vector2 mouse = GetMousePosition();
     
+    // Sur l'écran d'accueil
     if (g->state == STATE_TITLE) {
-        // Sur l'écran d'accueil, afficher uniquement le rectangle unique
         const int panelWidth = 400;
         const int panelHeight = 80;
+        
+        // Fond du panneau
         DrawRectangle(30, 90, panelWidth, panelHeight, (Color){ 0, 0, 0, 160 });
         DrawRectangleLines(30, 90, panelWidth, panelHeight, (Color){ 255, 255, 255, 80 });
+        
+        // Position de la souris
         DrawText(TextFormat("Mouse: %.0f, %.0f", mouse.x, mouse.y), 40, 100, 20, RAYWHITE);
         
+        // Rectangle de l'écran d'accueil
         Rectangle titleRect = computeTitleRect(g);
         DrawRectangleLinesEx(titleRect, 2.0f, (Color){ 255, 0, 0, 120 });
         DrawText(TextFormat("Title Rect: x=%.0f y=%.0f w=%.0f h=%.0f",
                             titleRect.x, titleRect.y, titleRect.width, titleRect.height),
                  40, 130, 18, LIGHTGRAY);
     } else {
-        // Logique normale pour le hub
+        // Dans le hub
         const int panelWidth = 400;
         const int panelHeight = 40 + (ZONE_COUNT + 1) * 24;
+        
+        // Fond du panneau
         DrawRectangle(30, 90, panelWidth, panelHeight, (Color){ 0, 0, 0, 160 });
         DrawRectangleLines(30, 90, panelWidth, panelHeight, (Color){ 255, 255, 255, 80 });
+        
+        // Position de la souris
         DrawText(TextFormat("Mouse: %.0f, %.0f", mouse.x, mouse.y), 40, 100, 20, RAYWHITE);
+        
+        // Afficher les rectangles des portails de zones
         for (int i = 0; i < ZONE_COUNT; ++i) {
             Rectangle rect = computePortalRect(g, i);
             DrawRectangleLinesEx(rect, 2.0f, (Color){ 255, 0, 0, 120 });
@@ -633,6 +903,8 @@ static void drawDebugOverlay(const Game *g) {
                                 rect.x, rect.y, rect.width, rect.height),
                      40, 130 + i * 24, 18, LIGHTGRAY);
         }
+        
+        // Afficher le rectangle du portail de la boutique
         Rectangle shopRect = computeShopPortalRect(g);
         DrawRectangleLinesEx(shopRect, 2.0f, (Color){ 0, 180, 255, 150 });
         DrawText(TextFormat("Boutique: x=%.0f y=%.0f w=%.0f h=%.0f",
@@ -641,6 +913,11 @@ static void drawDebugOverlay(const Game *g) {
     }
 }
 
+// ============================================================================
+// CONVERSION ZONE -> ÉTAT
+// ============================================================================
+
+// Convertit un identifiant de zone en état de jeu
 static GameState zoneToState(ZoneId zone) {
     switch (zone) {
         case ZONE_JARDIN: return STATE_ZONE_JARDIN;
@@ -651,29 +928,43 @@ static GameState zoneToState(ZoneId zone) {
     }
 }
 
-int main(int argc, char **argv) {
-    Game g = {0};
-    g.completionPopupDuration = MINIGAME_POPUP_DURATION;
-    for (int i = 1; i < argc; ++i) if (strcmp(argv[i], "--log") == 0) g.loggingEnabled = true;
+// ============================================================================
+// FONCTION PRINCIPALE
+// ============================================================================
 
+int main(int argc, char **argv) {
+    (void)argc;  // Paramètres non utilisés
+    (void)argv;
+    // Initialiser la structure du jeu à zéro
+    Game g = {0};
+    
+    // Initialiser la fenêtre
     SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI | FLAG_WINDOW_RESIZABLE);
     InitWindow(1920, 1080, "Gros Nounours 2D");
     InitAudioDevice();
-    // Icône de fenêtre (placer votre image sous assets/icon.png)
+    
+    // Charger l'icône de la fenêtre si elle existe
     if (FileExists("assets/icon.png")) {
         Image icon = LoadImage("assets/icon.png");
-        if (icon.data) { SetWindowIcon(icon); UnloadImage(icon); }
+        if (icon.data) {
+            SetWindowIcon(icon);
+            UnloadImage(icon);
+        }
     }
+    
+    // Charger les textures du menu
     g.menuBackground = loadTextureIfAvailable("assets/imagefond.png");
     g.hasMenuBackground = g.menuBackground.id != 0;
     g.menuBear = loadTextureIfAvailable("assets/nounours_depart.png");
     g.hasMenuBear = g.menuBear.id != 0;
+    
+    // Charger les textures de l'écran d'accueil
     g.titleBackground = loadTextureIfAvailable("assets/ecran acceuil.png");
     g.hasTitleBackground = g.titleBackground.id != 0;
     g.titleBackgroundHover = loadTextureIfAvailable("assets/ecran_accueil_ouvert.png");
     g.hasTitleBackgroundHover = g.titleBackgroundHover.id != 0;
     
-    // Charger les nounours avec différentes tenues
+    // Charger les tenues du nounours
     const char *bearOutfitFiles[5] = {
         "assets/nounours_noel.png",
         "assets/nounours_aviateur.png",
@@ -687,13 +978,13 @@ int main(int argc, char **argv) {
     }
     g.currentBearOutfit = -1;  // -1 = tenue de départ
     
-    // Initialiser la boutique (charge les textures depuis assets/boutique/)
+    // Initialiser la boutique
     g.boutiqueData.collectibles = &g.collectibles;
     g.boutiqueData.currentBearOutfit = &g.currentBearOutfit;
     g.boutiqueData.wantsToExit = false;
     Boutique_Init(&g.boutiqueData);
     
-    // Synchroniser les données avec la structure Game (pour compatibilité)
+    // Synchroniser les données de la boutique avec la structure Game
     for (int i = 0; i < 5; ++i) {
         g.outfits[i] = g.boutiqueData.outfits[i];
         g.hasOutfit[i] = g.boutiqueData.hasOutfit[i];
@@ -702,17 +993,21 @@ int main(int argc, char **argv) {
         g.outfitOwned[i] = g.boutiqueData.outfitOwned[i];
     }
     g.selectedOutfit = 0;
-    // Initialiser outfitPreview avec la première tenue
     g.outfitPreview = g.outfits[0];
     g.hasOutfitPreview = g.hasOutfit[0];
+    
+    // Charger les fonds des zones
     for (int i = 0; i < ZONE_COUNT; ++i) {
         g.zoneBackgrounds[i] = loadTextureIfAvailable(ZONE_BG_FILES[i]);
         g.hasZoneBackground[i] = g.zoneBackgrounds[i].id != 0;
     }
+    
+    // Charger les positions depuis le fichier de configuration
     loadMenuLayout(&g);
-
+    
+    // Initialiser les paramètres du jeu
     SetTargetFPS(60);
-    g.state = STATE_TITLE;
+    g.state = STATE_TITLE;  // Commencer sur l'écran d'accueil
     g.activeZone = ZONE_NONE;
     g.showDebugOverlay = false;
     g.draggingPortal = -1;
@@ -720,7 +1015,8 @@ int main(int argc, char **argv) {
     g.draggingShopPortal = false;
     g.hoveredPortal = -1;
     g.inactivityTimer = 0.0f;
-    g.lastMousePos = (Vector2){ 0, 0 };
+    
+    // Charger la musique
     g.music = LoadMusicStream("assets/music.ogg");
     g.hasMusic = g.music.frameCount > 0;
     g.musicMuted = false;
@@ -728,65 +1024,101 @@ int main(int argc, char **argv) {
         SetMusicVolume(g.music, 0.6f);
         PlayMusicStream(g.music);
     }
+    
+    // Charger les icônes de son
     g.soundOnIcon = loadTextureIfAvailable("assets/sound_on.png");
     g.soundOffIcon = loadTextureIfAvailable("assets/sound_off.png");
     g.hasSoundOnIcon = g.soundOnIcon.id != 0;
     g.hasSoundOffIcon = g.soundOffIcon.id != 0;
-    resetPlayer(&g.player);
-
+    
+    // ========================================================================
+    // BOUCLE PRINCIPALE DU JEU
+    // ========================================================================
     while (!WindowShouldClose()) {
-        float dt = GetFrameTime();
+        float dt = GetFrameTime();  // Temps écoulé depuis la dernière frame
+        
+        // Assurer que le nounours reste dans l'écran
         clampBearToScreen(&g);
+        
+        // Réinitialiser le portail survolé
         g.hoveredPortal = -1;
-        // Réinitialiser le timer seulement si on quitte l'écran d'accueil
+        
+        // Réinitialiser le timer d'inactivité si on n'est pas dans le hub
         if (g.state != STATE_HUB) {
             g.inactivityTimer = 0.0f;
         }
+        
+        // Mettre à jour la musique
         if (g.hasMusic && !g.musicMuted) {
             UpdateMusicStream(g.music);
         }
-
-        if (IsKeyPressed(KEY_F11)) ToggleFullscreen();
-        if (IsKeyPressed(KEY_F2)) g.showDebugOverlay = !g.showDebugOverlay;
-
+        
+        // Raccourcis clavier globaux
+        if (IsKeyPressed(KEY_F11)) {
+            ToggleFullscreen();  // Plein écran
+        }
+        if (IsKeyPressed(KEY_F2)) {
+            g.showDebugOverlay = !g.showDebugOverlay;  // Mode debug
+        }
+        
+        // ====================================================================
+        // GESTION DE L'ÉCRAN D'ACCUEIL
+        // ====================================================================
         if (g.state == STATE_TITLE) {
-            // Mode debug pour déplacer les rectangles (comme dans STATE_HUB)
+            // Mode debug pour déplacer le rectangle
             handleDebugDragging(&g);
             
-            // Détecter le survol et le clic sur le rectangle unique
+            // Détecter le survol et le clic sur le rectangle cliquable
             Vector2 mouse = GetMousePosition();
             Rectangle titleRect = computeTitleRect(&g);
             bool isHovering = CheckCollisionPointRec(mouse, titleRect);
             g.hoveredPortal = isHovering ? 0 : -1;
             
-            // Si on clique sur le rectangle (et qu'on n'est pas en train de le déplacer en mode debug), entrer dans le hub
+            // Si on clique sur le rectangle (et qu'on n'est pas en mode debug), entrer dans le hub
             if (!g.showDebugOverlay && isHovering && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
                 g.state = STATE_HUB;
-                resetPlayer(&g.player);
             }
             
-            if (IsKeyPressed(KEY_ENTER)) { g.state = STATE_HUB; resetPlayer(&g.player); }
-        } else if (g.state == STATE_PAUSE) {
-            if (IsKeyPressed(KEY_ESCAPE)) g.state = STATE_HUB;
-        } else {
-            if (IsKeyPressed(KEY_ESCAPE)) g.state = STATE_PAUSE;
+            // Touche Entrée pour entrer dans le hub
+            if (IsKeyPressed(KEY_ENTER)) {
+                g.state = STATE_HUB;
+            }
         }
-
+        // Gestion de la pause
+        else if (g.state == STATE_PAUSE) {
+            if (IsKeyPressed(KEY_ESCAPE)) {
+                g.state = STATE_HUB;
+            }
+        } else {
+            // Échap pour mettre en pause (sauf depuis la pause)
+            if (IsKeyPressed(KEY_ESCAPE)) {
+                g.state = STATE_PAUSE;
+            }
+        }
+        
+        // ====================================================================
+        // GESTION DES DIFFÉRENTS ÉTATS
+        // ====================================================================
         switch (g.state) {
+            // ================================================================
+            // HUB (MENU PRINCIPAL)
+            // ================================================================
             case STATE_HUB: {
+                // Mode debug
                 handleDebugDragging(&g);
+                
                 if (!g.showDebugOverlay) {
                     Vector2 mouse = GetMousePosition();
                     
-                    // Détecter l'inactivité (seulement les clics réinitialisent le timer)
+                    // Gérer le timer d'inactivité
                     bool anyClick = IsMouseButtonPressed(MOUSE_LEFT_BUTTON) || IsMouseButtonPressed(MOUSE_RIGHT_BUTTON);
-                    
                     if (anyClick) {
-                        g.inactivityTimer = 0.0f; // Réinitialiser le timer seulement sur clic
+                        g.inactivityTimer = 0.0f;  // Réinitialiser sur clic
                     } else {
-                        g.inactivityTimer += dt; // Incrémenter le timer
+                        g.inactivityTimer += dt;  // Incrémenter sinon
                     }
                     
+                    // Vérifier les clics sur les portails de zones
                     bool portalHovered = false;
                     bool portalClicked = false;
                     for (int i = 0; i < ZONE_COUNT; ++i) {
@@ -802,6 +1134,8 @@ int main(int argc, char **argv) {
                             }
                         }
                     }
+                    
+                    // Vérifier le clic sur le portail de la boutique
                     if (!portalClicked) {
                         Rectangle shopRect = computeShopPortalRect(&g);
                         bool shopHovered = !portalHovered && CheckCollisionPointRec(mouse, shopRect);
@@ -812,33 +1146,49 @@ int main(int argc, char **argv) {
                     }
                 }
             } break;
+            
+            // ================================================================
+            // ZONES (ÉCRANS D'INFORMATION AVANT LES MINIJEUX)
+            // ================================================================
             case STATE_ZONE_JARDIN:
             case STATE_ZONE_CHAMBRE:
             case STATE_ZONE_GRENIER:
             case STATE_ZONE_CUISINE:
-                if (IsKeyPressed(KEY_BACKSPACE)) { g.state = STATE_HUB; g.activeZone = ZONE_NONE; }
+                // Retour arrière pour revenir au hub
+                if (IsKeyPressed(KEY_BACKSPACE)) {
+                    g.state = STATE_HUB;
+                    g.activeZone = ZONE_NONE;
+                }
+                // Entrée pour lancer le minijeu correspondant
                 if (IsKeyPressed(KEY_ENTER)) {
-                    // Choix mini‑jeu par zone
-                    // Jardin -> Traffic, Puzzle -> PoussePousse, Bibliothèque -> Pendu, Cuisine -> CeriseSurGateau
                     if (g.state == STATE_ZONE_JARDIN) {
-                        prepareMinigameSession(&g, GetMinigameTraffic(), "Traffic");
+                        prepareMinigameSession(&g, GetMinigameTraffic());
                     } else if (g.state == STATE_ZONE_CHAMBRE) {
-                        prepareMinigameSession(&g, GetMinigamePoussePousse(), "Pousse-Pousse");
+                        prepareMinigameSession(&g, GetMinigamePoussePousse());
                     } else if (g.state == STATE_ZONE_GRENIER) {
-                        prepareMinigameSession(&g, GetMinigamePendu(), "Pendu");
+                        prepareMinigameSession(&g, GetMinigamePendu());
                     } else {
-                        prepareMinigameSession(&g, GetMinigameCeriseSurGateau(), "Cerise sur gâteau"); // cuisine
+                        prepareMinigameSession(&g, GetMinigameCeriseSurGateau());
                     }
                 }
                 break;
+            
+            // ================================================================
+            // BOUTIQUE
+            // ================================================================
             case STATE_SHOP:
-                if (IsKeyPressed(KEY_BACKSPACE)) { g.state = STATE_HUB; g.activeZone = ZONE_NONE; }
+                // Retour arrière pour revenir au hub
+                if (IsKeyPressed(KEY_BACKSPACE)) {
+                    g.state = STATE_HUB;
+                    g.activeZone = ZONE_NONE;
+                }
                 // Synchroniser les données avant la mise à jour
                 for (int i = 0; i < 5; ++i) {
                     g.boutiqueData.outfitOwned[i] = g.outfitOwned[i];
                 }
+                // Mettre à jour la boutique
                 Boutique_Update(&g.boutiqueData);
-                // Vérifier si on veut retourner au hub
+                // Vérifier si on veut quitter
                 if (g.boutiqueData.wantsToExit) {
                     g.state = STATE_HUB;
                     g.activeZone = ZONE_NONE;
@@ -847,68 +1197,79 @@ int main(int argc, char **argv) {
                 for (int i = 0; i < 5; ++i) {
                     g.outfitOwned[i] = g.boutiqueData.outfitOwned[i];
                 }
-                // currentBearOutfit est déjà synchronisé via pointeur
                 break;
+            
+            // ================================================================
+            // MINIJEU
+            // ================================================================
             case STATE_MINIJEU:
+                // Retour arrière pour quitter le minijeu
                 if (IsKeyPressed(KEY_BACKSPACE)) {
                     if (g.minigameCompleted) {
                         finalizeMinigame(&g);
                     } else {
-                        if (g.currentMinigame.unload) g.currentMinigame.unload();
+                        // Quitter sans finaliser (abandon)
+                        if (g.currentMinigame.unload) {
+                            g.currentMinigame.unload();
+                        }
                         g.currentMinigame = (MinigameAPI){0};
-                        g.currentMinigameName = NULL;
                         g.state = STATE_HUB;
                         g.activeZone = ZONE_NONE;
                     }
                     break;
                 }
-
-                if (g.currentMinigame.update) g.currentMinigame.update(dt);
-                // Ajouter les pièces dès qu'on gagne, même si on ne quitte pas encore
+                
+                // Mettre à jour le minijeu
+                if (g.currentMinigame.update) {
+                    g.currentMinigame.update(dt);
+                }
+                
+                // Vérifier si le minijeu est complété et ajouter les pièces
                 if (g.currentMinigame.isCompleted) {
                     int coins = 0;
-                    g.currentMinigame.isCompleted(&coins); // Obtenir les pièces même si on ne quitte pas
+                    g.currentMinigame.isCompleted(&coins);
                     if (coins > 0 && !g.minigameCompleted) {
-                        // Ajouter les pièces immédiatement dès qu'on gagne
+                        // Ajouter les pièces immédiatement
                         g.collectibles += coins;
-                        g.minigameCompleted = true; // Marquer comme complété pour éviter les ajouts multiples
+                        g.minigameCompleted = true;
                     } else if (coins == 0 && g.minigameCompleted) {
-                        // Si on rejoue (coins == 0 mais on était complété), réinitialiser le flag
+                        // Réinitialiser si on rejoue
                         g.minigameCompleted = false;
                     }
                 }
-                // Gestion de la fin des mini-jeux (quand on quitte)
+                
+                // Vérifier si le joueur veut quitter le minijeu
                 if (g.currentMinigame.isCompleted) {
                     int coins = 0;
                     if (g.currentMinigame.isCompleted(&coins)) {
-                        // L'utilisateur veut quitter, finaliser le minijeu
+                        // Le minijeu indique qu'on peut quitter
                         if (g.activeZone >= 0 && g.activeZone < ZONE_COUNT) {
                             g.progress[g.activeZone].completed = true;
                         }
-                        if (g.currentMinigame.unload) g.currentMinigame.unload();
+                        if (g.currentMinigame.unload) {
+                            g.currentMinigame.unload();
+                        }
                         g.currentMinigame = (MinigameAPI){0};
-                        g.currentMinigameName = NULL;
                         g.state = STATE_HUB;
                         g.activeZone = ZONE_NONE;
                     }
-                } else {
-                    g.completionPopupTimer += dt;
-                    bool shouldExit = (g.completionPopupDuration > 0.0f && g.completionPopupTimer >= g.completionPopupDuration)
-                                      || IsKeyPressed(KEY_ENTER)
-                                      || IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
-                    if (shouldExit) {
-                        finalizeMinigame(&g);
-                    }
                 }
                 break;
-            default: break;
+            
+            default:
+                break;
         }
-
+        
+        // ====================================================================
+        // AFFICHAGE
+        // ====================================================================
         BeginDrawing();
         ClearBackground((Color){ 30, 34, 46, 255 });
+        
         switch (g.state) {
-            case STATE_TITLE:
-                // Afficher le fond d'accueil (ouvert si survol, normal sinon)
+            // Écran d'accueil
+            case STATE_TITLE: {
+                // Choisir le fond à afficher
                 Texture2D *bgToUse = &g.titleBackground;
                 bool hasBg = g.hasTitleBackground && g.titleBackground.id != 0;
                 
@@ -918,31 +1279,40 @@ int main(int argc, char **argv) {
                     hasBg = true;
                 }
                 
+                // Afficher le fond
                 if (hasBg && bgToUse->id != 0) {
                     Rectangle src = { 0, 0, (float)bgToUse->width, (float)bgToUse->height };
                     Rectangle dst = { 0, 0, (float)GetScreenWidth(), (float)GetScreenHeight() };
                     DrawTexturePro(*bgToUse, src, dst, (Vector2){ 0, 0 }, 0.0f, WHITE);
                 }
+                
+                // Texte de bienvenue
                 drawCentered("Bienvenue dans l'aventure de Gros Nounours !", 70, 48, RAYWHITE);
                 drawCentered("Clique vite sur la porte pour rencontrer Gros Nounours et commencer a jouer", 130, 32, LIGHTGRAY);
+                
+                // Overlay de debug
                 drawDebugOverlay(&g);
-                break;
+            } break;
+            
+            // Écran de pause
             case STATE_PAUSE:
                 drawCentered("Pause", 180, 48, RAYWHITE);
                 drawCentered("Échap: Reprendre", 240, 24, LIGHTGRAY);
                 break;
+            
+            // Hub (menu principal)
             case STATE_HUB: {
+                // Afficher les éléments du hub
                 drawMenuBackground(&g);
                 drawBearCloseup(&g);
-                drawPortalHighlights(&g);
                 drawMinigameStatusTable(&g);
                 drawCoinCounter(&g);
                 drawDebugOverlay(&g);
                 
-                // Afficher le message d'inactivité après 5 secondes
+                // Afficher un message d'aide après 5 secondes d'inactivité
                 if (g.inactivityTimer >= 5.0f) {
-                    int sw = GetScreenWidth();
-                    int sh = GetScreenHeight();
+                    int screenWidth = GetScreenWidth();
+                    int screenHeight = GetScreenHeight();
                     int fontSize = 28;
                     int lineHeight = 35;
                     Color textColor = (Color){ 255, 255, 255, 230 };
@@ -953,20 +1323,24 @@ int main(int argc, char **argv) {
                     int line1Width = MeasureText(line1, fontSize);
                     int line2Width = MeasureText(line2, fontSize);
                     
-                    // Fond semi-transparent pour le message
+                    // Calculer la taille de la boîte
                     int padding = 20;
                     int boxHeight = lineHeight * 2 + padding * 2;
                     int boxWidth = (line1Width > line2Width ? line1Width : line2Width) + padding * 2;
-                    int boxX = (sw - boxWidth) / 2 + 100; // Décalé de 100 pixels vers la droite
-                    int boxY = sh - boxHeight - 50;
+                    int boxX = (screenWidth - boxWidth) / 2 + 100;  // Décalé vers la droite
+                    int boxY = screenHeight - boxHeight - 50;
                     
+                    // Fond semi-transparent
                     DrawRectangle(boxX, boxY, boxWidth, boxHeight, (Color){ 0, 0, 0, 180 });
                     DrawRectangleLinesEx((Rectangle){ boxX, boxY, boxWidth, boxHeight }, 2.0f, (Color){ 255, 255, 255, 100 });
                     
+                    // Texte
                     DrawText(line1, boxX + padding, boxY + padding, fontSize, textColor);
                     DrawText(line2, boxX + padding, boxY + padding + lineHeight, fontSize, textColor);
                 }
             } break;
+            
+            // Zones (écrans d'information)
             case STATE_ZONE_JARDIN: {
                 int y = 80;
                 int fontSize = 32;
@@ -989,6 +1363,7 @@ int main(int argc, char **argv) {
                 y += lineHeight * 2;
                 drawCentered("Clique sur le bouton Entree pour commencer a jouer.", y, fontSize, (Color){255, 255, 100, 255});
             } break;
+            
             case STATE_ZONE_CHAMBRE: {
                 int y = 80;
                 int fontSize = 32;
@@ -1005,6 +1380,7 @@ int main(int argc, char **argv) {
                 y += lineHeight * 2;
                 drawCentered("Clique sur le bouton Entree pour commencer a jouer.", y, fontSize, (Color){255, 255, 100, 255});
             } break;
+            
             case STATE_ZONE_GRENIER: {
                 int y = 80;
                 int fontSize = 32;
@@ -1033,6 +1409,7 @@ int main(int argc, char **argv) {
                 y += lineHeight * 2;
                 drawCentered("Appuie sur la touche Entree pour commencer a jouer.", y, fontSize, (Color){255, 255, 100, 255});
             } break;
+            
             case STATE_ZONE_CUISINE: {
                 int y = 80;
                 int fontSize = 32;
@@ -1055,6 +1432,8 @@ int main(int argc, char **argv) {
                 y += lineHeight * 2;
                 drawCentered("Clique sur le bouton Entree pour commencer a jouer.", y, fontSize, (Color){255, 255, 100, 255});
             } break;
+            
+            // Boutique
             case STATE_SHOP:
                 // Synchroniser les données avant l'affichage
                 for (int i = 0; i < 5; ++i) {
@@ -1062,36 +1441,48 @@ int main(int argc, char **argv) {
                 }
                 Boutique_Draw(&g.boutiqueData);
                 break;
+            
+            // Minijeu
             case STATE_MINIJEU:
-                if (g.currentMinigame.draw) g.currentMinigame.draw();
-                // Les minijeux gèrent maintenant leur propre écran de fin (comme le pendu)
-                // Plus besoin du popup générique
+                if (g.currentMinigame.draw) {
+                    g.currentMinigame.draw();
+                }
                 break;
-            default: break;
+            
+            default:
+                break;
         }
-
-        // Bouton musique (mute/unmute) toujours visible
+        
+        // Bouton musique (toujours visible)
         drawMusicButton(&g);
         if (g.hasMusic) {
             Rectangle musicBtn = getMusicButtonRect();
             if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && CheckCollisionPointRec(GetMousePosition(), musicBtn)) {
                 g.musicMuted = !g.musicMuted;
-                if (g.musicMuted) PauseMusicStream(g.music);
-                else ResumeMusicStream(g.music);
+                if (g.musicMuted) {
+                    PauseMusicStream(g.music);
+                } else {
+                    ResumeMusicStream(g.music);
+                }
             }
         }
+        
         EndDrawing();
     }
+    
+    // ========================================================================
+    // NETTOYAGE (quand on ferme le jeu)
+    // ========================================================================
+    
+    // Sauvegarder les positions
     saveMenuLayout(&g);
+    
+    // Libérer les textures
     if (g.hasMenuBackground) UnloadTexture(g.menuBackground);
     if (g.hasTitleBackground) UnloadTexture(g.titleBackground);
     if (g.hasTitleBackgroundHover) UnloadTexture(g.titleBackgroundHover);
     for (int i = 0; i < ZONE_COUNT; ++i) {
         if (g.hasZoneBackground[i]) UnloadTexture(g.zoneBackgrounds[i]);
-    }
-    if (g.hasMusic) {
-        StopMusicStream(g.music);
-        UnloadMusicStream(g.music);
     }
     if (g.hasMenuBear) UnloadTexture(g.menuBear);
     for (int i = 0; i < 5; ++i) {
@@ -1100,11 +1491,19 @@ int main(int argc, char **argv) {
     if (g.hasSoundOnIcon) UnloadTexture(g.soundOnIcon);
     if (g.hasSoundOffIcon) UnloadTexture(g.soundOffIcon);
     if (g.hasOutfitPreview) UnloadTexture(g.outfitPreview);
-    // Les textures des tenues sont déchargées par Boutique_Unload
+    
+    // Libérer la musique
+    if (g.hasMusic) {
+        StopMusicStream(g.music);
+        UnloadMusicStream(g.music);
+    }
+    
+    // Libérer les ressources de la boutique
     Boutique_Unload(&g.boutiqueData);
+    
+    // Fermer la fenêtre et l'audio
     CloseAudioDevice();
     CloseWindow();
+    
     return 0;
 }
-
-
