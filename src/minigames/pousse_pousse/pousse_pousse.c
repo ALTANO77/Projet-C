@@ -22,8 +22,8 @@ void init_solved(Board *b) {
         }
     }
     // ces champs ne servent plus comme "case vide"
-    b->empty_row = -1;
-    b->empty_col = -1;
+    b->empty_row = -1; // vient de mon taquin, mais réutilisé pour drag & drop
+    b->empty_col = -1; // -1 car les cases sont entre 0 et 4, donc pas de case selectionnée
 }
 
 static void swap_cells(Board *b, int r1, int c1, int r2, int c2) {
