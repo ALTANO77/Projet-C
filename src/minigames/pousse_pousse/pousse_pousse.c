@@ -21,9 +21,8 @@ void init_solved(Board *b) {
             b->grid[i][j] = val++;   // 1..25
         }
     }
-    // ces champs ne servent plus comme "case vide"
-    b->empty_row = -1; // vient de mon taquin, mais réutilisé pour drag & drop
-    b->empty_col = -1; // -1 car les cases sont entre 0 et 4, donc pas de case selectionnée
+    b->empty_row = -1;
+    b->empty_col = -1;
 }
 
 static void swap_cells(Board *b, int r1, int c1, int r2, int c2) {
@@ -32,15 +31,12 @@ static void swap_cells(Board *b, int r1, int c1, int r2, int c2) {
     b->grid[r2][c2] = tmp;
 }
 
-// mélange en permutant aléatoirement les 25 cases (Fisher-Yates)
-void shuffle_board(Board *b, int moves_count) {
-    (void)moves_count; // plus utile dans cette version
-
-    // initialisation de base
+// Mélange en permutant aléatoirement les 25 cases (Fisher-Yates)
+// Signature simplifiée : plus de moves_count inutile
+void shuffle_board(Board *b) {
+    // Initialisation de base
     init_solved(b);
 
-    // une seule initialisation de rand ici serait mieux,
-    // mais on garde quelque chose de simple :
     srand((unsigned int)time(NULL));
 
     int total = SIZE * SIZE;
@@ -56,33 +52,22 @@ void shuffle_board(Board *b, int moves_count) {
         swap_cells(b, r1, c1, r2, c2);
     }
 
-    // si par hasard le puzzle est déjà résolu, on échange deux cases
+    // Si par hasard le puzzle est déjà résolu, on échange deux cases
     if (is_solved(b)) {
         swap_cells(b, 0, 0, 0, 1);
     }
 }
 
 void init_random_board(Board *b) {
-    shuffle_board(b, 0);
+    shuffle_board(b); // Appel simplifié sans le 0
 }
 
 // Renvoie 1 si la case (row,col) est dans la grille
+// (Gardé car utilisé dans PoussePousse_Update)
 int can_move_tile(const Board *b, int row, int col) {
-    (void)b;
+    (void)b; // On garde celui-ci car 'b' est dans la signature mais pas utilisé pour la vérif de bornes
     if (row < 0 || row >= SIZE || col < 0 || col >= SIZE) return 0;
     return 1;
-}
-
-// Plus utilisé dans la logique drag & drop : on laisse un stub neutre
-int move_tile(Board *b, int row, int col) {
-    (void)b; (void)row; (void)col;
-    return 0;
-}
-
-// Stub également
-int move_tile_by_number(Board *b, int number) {
-    (void)b; (void)number;
-    return 0;
 }
 
 // Test si le puzzle est dans l'ordre 1..25
@@ -178,14 +163,14 @@ static void PoussePousse_Init(void) {
 
 // appelé à chaque frame pour gérer les interactions
 static void PoussePousse_Update(float dt) {
-    (void)dt;
+    (void)dt; // OBLIGATOIRE : Contrat MinigameAPI respecté
+    
     if (!s_initialized) return;
 
     // Si le puzzle est terminé, gérer l'écran de fin
     if (s_finished) {
         UpdateEndScreen(&s_endScreen, true, false);
         if (s_endScreen.wantsToReplay) {
-            // Réinitialiser complètement le jeu
             init_random_board(&s_board);
             s_finished = false;
             s_moveCount = 0;
@@ -196,7 +181,7 @@ static void PoussePousse_Update(float dt) {
             s_dragCol   = -1;
             s_dragValue = 0;
         } else {
-            return; // Ne pas permettre de jouer si on ne rejoue pas
+            return; 
         }
     }
 
@@ -225,7 +210,6 @@ static void PoussePousse_Update(float dt) {
             s_dragCol   = col;
             s_dragValue = s_board.grid[row][col];
 
-            // offset pour que la tuile "reste sous" la souris comme au départ
             s_dragOffset.x = offX + col * tileSize - mx;
             s_dragOffset.y = offY + row * tileSize - my;
         }
@@ -271,7 +255,6 @@ static void PoussePousse_Draw(void) {
         Rectangle dst = { 0, 0, (float)GetScreenWidth(), (float)GetScreenHeight() };
         DrawTexturePro(s_bgTexture, src, dst, (Vector2){0, 0}, 0.0f, WHITE);
     } else {
-        // si pas d'image de fond, couleur de fond par défaut
         ClearBackground((Color){ 30, 34, 46, 255 });
     }
 
@@ -299,9 +282,7 @@ static void PoussePousse_Draw(void) {
                 continue;
 
             if (s_tilesLoaded && v >= 1 && v <= TILE_COUNT) {
-
                 float scale = (float)tileSize / s_tileTextures[v-1].width;
-
                 DrawTextureEx(
                     s_tileTextures[v-1],
                     (Vector2){ x, y },
@@ -309,10 +290,8 @@ static void PoussePousse_Draw(void) {
                     scale,
                     WHITE
                 );
-
                 DrawRectangleLines(x, y, tileSize, tileSize, BLACK); // contour
             } else {
-                // Si jamais texture manquante → on affiche le numéro (sécurité)
                 const char *txt = TextFormat("%d", v);
                 int fontSize = tileSize / 2;
                 int tw = MeasureText(txt, fontSize);
@@ -326,12 +305,10 @@ static void PoussePousse_Draw(void) {
     // Dessiner la tuile en cours de drag au-dessus des autres
     if (s_dragging && s_dragValue >= 1 && s_dragValue <= TILE_COUNT && s_tilesLoaded) {
         float scale = (float)tileSize / s_tileTextures[s_dragValue - 1].width;
-
         Vector2 pos = {
             mouse.x + s_dragOffset.x,
             mouse.y + s_dragOffset.y
         };
-
         DrawTextureEx(
             s_tileTextures[s_dragValue - 1],
             pos,
@@ -339,8 +316,6 @@ static void PoussePousse_Draw(void) {
             scale,
             WHITE
         );
-
-        // petit contour autour de la tuile drag
         DrawRectangleLines((int)pos.x, (int)pos.y, tileSize, tileSize, YELLOW);
     }
 
@@ -367,7 +342,6 @@ static void PoussePousse_Unload(void) {
 
 // renvoie true quand le mini-jeu est termine, et indique le nombre de pieces
 static bool PoussePousse_IsCompleted(int *coins) {
-    // Ne signaler la fin que si l'utilisateur veut quitter
     if (!s_finished || !s_endScreen.wantsToExit) return false;
     if (coins) *coins = 15;   // récompense : 15 pièces
     return true;

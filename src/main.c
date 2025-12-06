@@ -427,7 +427,7 @@ static void saveMenuLayout(const Game *g) {
     
     fclose(f);
 }
-git config --global user.name ValentinDayon
+
 // ============================================================================
 // CALCUL DES RECTANGLES
 // ============================================================================
