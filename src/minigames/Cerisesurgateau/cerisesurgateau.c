@@ -25,9 +25,9 @@
 #define CAKE_PLACEMENT_RADIUS 200.0f
 #define MAX_DISTANCE 200.0f
 #define PASSING_SCORE 60.0f
-#define LEVEL_CONFIG_FILE "config/cerise_levels.ini"
+#define LEVELCONFIG "config/cerise_levels.ini"
 
-// Types d'ingrédients
+// Liste des types d'ingrédients
 typedef enum {
     ING_FRAISE = 0,
     ING_BANANE,
@@ -36,7 +36,7 @@ typedef enum {
     ING_CHOCOLAT
 } IngredientType;
 
-// États de jeu
+// Liste des états de jeu
 typedef enum {
     STATE_SHOWING_MODEL,
     STATE_PLAYING,
@@ -44,7 +44,7 @@ typedef enum {
     STATE_EDITOR
 } GameState;
 
-// Ingrédient
+// Structure pour représenter un ingrédient
 typedef struct {
     IngredientType type;
     Texture2D texture;
@@ -56,60 +56,62 @@ typedef struct {
     Rectangle rect;          // zone clic
 } Ingredient;
 
-// Niveau
+// Niveau : un gâteau avec ses ingrédients et sa position cible
 typedef struct {
-    Texture2D modelTexture;
-    Texture2D cakeBaseTexture;
+    Texture2D modelTexture; // image du gâteau modèle (avec ingrédients)
+    Texture2D cakeBaseTexture; // image du gâteau vide/base
     Ingredient ingredients[INGREDIENT_COUNT];
-    int ingredientCount;
-    float score;
-    bool completed;
+    int ingredientCount; // nombre d'ingrédients pour ce niveau
+    float score; // score de précision pour ce niveau
+    bool completed; // si le niveau est complété
 } Level;
 
-// --------- Globals ---------
+// Variables globales du jeu
 
-static GameState gameState = STATE_SHOWING_MODEL;
-static int currentLevel = 0;
-static float modelTimer = 0.0f;
-static float levelTimer = 0.0f;
+static GameState gameState = STATE_SHOWING_MODEL; // état actuel du jeu
+static int currentLevel = 0; // numéro du niveau actuel
+static float modelTimer = 0.0f; // timer pour afficher le modèle
+static float levelTimer = 0.0f; // timer pour le jeu
 
-static Level levels[MAX_LEVELS];
-static Texture2D backgroundTexture = {0};
+static Level levels[MAX_LEVELS]; // liste des niveaux
+static Texture2D backgroundTexture = {0}; // texture de fond
 
-static Vector2 cakeCenter = {0};
-static float cakeRadius = CAKE_PLACEMENT_RADIUS;
+static Vector2 cakeCenter = {0}; // centre du gâteau
+static float cakeRadius = CAKE_PLACEMENT_RADIUS; // rayon du gâteau
 
-static Ingredient* draggedIngredient = NULL;
-static Vector2 dragOffset = {0};
+static Ingredient* draggedIngredient = NULL; // ingrédient en cours de drag
+static Vector2 dragOffset = {0}; // offset pour le drag
 
-static float finalScore = 0.0f;
-static EndScreenState s_endScreen = {0};
+static float finalScore = 0.0f; // score final
+static EndScreenState s_endScreen = {0}; // état de l'écran de fin
 
-// "barquette" invisible = simple ligne en bas
-static float traySpacing = 80.0f;
-static float trayScale   = 0.4f;
-static float trayHeight  = 120.0f;
-static float trayMarginBottom = 20.0f;
+// "barquette" invisible en bas de l'écran
+static float traySpacing = 80.0f; // espacement entre les ingrédients
+static float trayScale   = 0.4f; // taille des ingrédients
+static float trayHeight  = 120.0f; // hauteur de la barquette
+static float trayMarginBottom = 20.0f; // marge en bas
 
 // Éditeur simple
-static bool editorMode = false;
-static int editorSelectedLevel = 0;
-static int editorSelectedIngredient = 0;
+static bool editorMode = false; // mode éditeur
+static int editorSelectedLevel = 0; // niveau sélectionné   
+static int editorSelectedIngredient = 0; // ingrédient sélectionné
 
 
-// --------- Helpers ---------
+// Fonctions utiles pour le jeu
 
-static const char* getIngredientName(IngredientType type) {
+// Retourne le nom d'un ingrédient en français
+static const char* getIngredientName(IngredientType type) { //pointeur sur le nom de l'ingredient
     switch (type) {
-        case ING_FRAISE: return "Fraise";
+        case ING_FRAISE: return "Fraise"; //retourne le nom de l'ingredient
         case ING_BANANE: return "Banane";
         case ING_KIWI: return "Kiwi";
         case ING_MANDARINE: return "Mandarine";
         case ING_CHOCOLAT: return "Chocolat";
-        default: return "Inconnu";
+        default: return "Inconnu";//evite les erreurs si erreur d'ingredient
     }
 }
 
+// Pointe vers l'image de chaque ingredient
 static const char* getIngredientFilename(IngredientType type) {
     switch (type) {
         case ING_FRAISE: return "assets/cerisesurgateau/ingredient/Fraise.png";
@@ -120,92 +122,126 @@ static const char* getIngredientFilename(IngredientType type) {
         default: return "";
     }
 }
+//Pour cette partie, plus de détails dans le rapport
 
+// Calcule la distance entre deux points avec pythagore 
 static float dist(Vector2 a, Vector2 b) {
-    float dx = a.x - b.x;
-    float dy = a.y - b.y;
-    return sqrtf(dx * dx + dy * dy);
+    float dx = a.x - b.x;  
+    float dy = a.y - b.y;  
+    return sqrtf(dx * dx + dy * dy);  
 }
 
+// Vérifie si un point est dans un cercle =si en dehors ca ne marche pas
 static bool pointInCircle(Vector2 p, Vector2 center, float radius) {
     return dist(p, center) <= radius;
 }
 
+// Convertit une distance en pixels en score de précision (0-100%)
 static float calculatePrecision(Vector2 target, Vector2 placedCenter) {
-    float d = dist(target, placedCenter);
-    float prec = 100.0f - (d / MAX_DISTANCE) * 100.0f;
-    if (prec < 0.0f) prec = 0.0f;
-    if (prec > 100.0f) prec = 100.0f;
+    float d = dist(target, placedCenter);  
+    float prec = 100.0f - (d / MAX_DISTANCE) * 100.0f; 
+    if (prec < 0.0f) prec = 0.0f;  
     return prec;
 }
 
-// --------- Init niveau ---------
+// Calcule le score final et termine le niveau
+static void calculateAndFinalizeScore(Level* level) {
+    // On compte combien d'ingrédients sont placés
+    int placed = 0;
+    for (int i = 0; i < level->ingredientCount; ++i) {
+        if (level->ingredients[i].isPlaced) {
+            placed++;
+        }
+    }
+    
+    // Si tous les ingrédients ne sont pas placés, score = 0%
+    if (placed < level->ingredientCount) {
+        level->score = 0.0f;
+    } else {
+        // Tous les ingrédients sont placés, on calcule la précision de chacun
+        float total = 0.0f;
+        for (int i = 0; i < level->ingredientCount; ++i) {
+            Ingredient* ing = &level->ingredients[i];
+            // On calcule le centre réel de l'ingrédient (position = coin supérieur gauche)
+            Vector2 centerPlaced = {
+                ing->position.x + (ing->texture.width  / 2.0f),  // centre X
+                ing->position.y + (ing->texture.height / 2.0f)  // centre Y
+            };
+            // On compare avec la position cible et on ajoute au total
+            total += calculatePrecision(ing->targetPosition, centerPlaced);
+        }
+        // Score final = moyenne de toutes les précisions
+        level->score = total / level->ingredientCount;
+    }
+    
+    // On marque le niveau comme terminé et on passe à l'écran de fin
+    level->completed = true;
+    finalScore = level->score;
+    gameState = STATE_GAME_COMPLETE;
+    s_endScreen.wantsToExit = false;
+    s_endScreen.wantsToReplay = false;
+}
 
+//On initialise un niveau
+
+// Initialise un niveau : charge les images, définit les positions cibles, etc.
 static void initLevel(int levelIndex) {
     Level* level = &levels[levelIndex];
 
-    // Charger modèle
+    // Charge l'image du modèle (le gâteau qu'on montre au début)
+    // Chaque niveau a son propre modèle : gateau1.png, gateau2.png, gateau3.png
     char modelPath[256];
     snprintf(modelPath, sizeof(modelPath),
              "assets/cerisesurgateau/image de gateau lvl/gateau%d.png",
-             levelIndex + 1);
+             levelIndex + 1);  
     if (FileExists(modelPath)) {
         Image img = LoadImage(modelPath);
         if (img.data) {
             level->modelTexture = LoadTextureFromImage(img);
-            UnloadImage(img);
+            UnloadImage(img);  //Supprime l'image
         }
     }
 
-    // Gâteau de base - ne pas charger (on ne veut pas afficher le gâteau de base)
+    // On ne charge pas le gâteau de base (on veut juste le fond)
     level->cakeBaseTexture.id = 0;
 
     level->ingredientCount = INGREDIENT_COUNT;
 
-    // Positions cibles par défaut (légèrement différentes selon le niveau)
-    Vector2 base[INGREDIENT_COUNT] = {
-        { -80, -40 }, // fraise
-        { -20, -60 }, // banane
-        {  40, -40 }, // kiwi
-        { -40,  10 }, // mandarine
-        {  10,  30 }  // chocolat
-    };
-
-    float levelOffsetX = (float)(levelIndex - 1) * 20.0f;
-    float levelOffsetY = (float)(levelIndex - 1) * 10.0f;
-
+    // Pour chaque ingrédient, on initialise tout
     for (int i = 0; i < INGREDIENT_COUNT; ++i) {
         Ingredient* ing = &level->ingredients[i];
         ing->type = (IngredientType)i;
         ing->name = getIngredientName(ing->type);
-        ing->targetPosition = (Vector2){
-            cakeCenter.x + base[i].x + levelOffsetX,
-            cakeCenter.y + base[i].y + levelOffsetY
-        };
-        ing->isPlaced = false;
-        ing->isInTray = true;
+        
+        // targetPosition sera chargée depuis le fichier .ini
+        ing->targetPosition = (Vector2){0, 0};
+        ing->isPlaced = false;  // pas encore posé
+        ing->isInTray = true;   // en bas dans la barquette
 
-        // Charger PNG + redimensionner (sinon trop gros)
-        const char* filename = getIngredientFilename(ing->type);
+        // Charge l'image de l'ingrédient et la redimensionne à 96x96
+        // Sinon les images sont trop grosses
+        const char* filename = getIngredientFilename(ing->type);//pointe vers l'image de l'ingredient l114
         if (FileExists(filename)) {
             Image img = LoadImage(filename);
             if (img.data) {
-                int size = 96; // ~100px max
+                int size = 96;  // taille fixe pour tous les ingrédients
                 ImageResize(&img, size, size);
-                ing->texture = LoadTextureFromImage(img);
-                UnloadImage(img);
+                ing->texture = LoadTextureFromImage(img); //charge la texture de la ram vers gpu
+                UnloadImage(img);  // on supprime l'image de la ram
             }
         } else {
-            ing->texture.id = 0;
+            ing->texture.id = 0;  // pas de texture si le fichier n'existe pas
         }
 
+        // Position initiale à (0,0), sera mise à jour par updateTrayPositionsForLevel
         ing->position = (Vector2){0, 0};
+        // Rectangle de drag pour les clics sur l'ingredient
         if (ing->texture.id != 0) {
             ing->rect = (Rectangle){0, 0,
                                     (float)ing->texture.width,
                                     (float)ing->texture.height};
         } else {
-            ing->rect = (Rectangle){0, 0, 50, 50};
+            ing->rect = (Rectangle){0, 0, 50, 50};  // taille par défaut si pas de texture
         }
     }
 
@@ -213,24 +249,38 @@ static void initLevel(int levelIndex) {
     level->completed = false;
 }
 
-// --------- Placement ligne d’ingrédients en bas ---------
+// Placement de la barquette (ingredients en ligne en bas de l'écran)
 
+// Appelée à chaque frame pour repositionner les ingrédients qui ne sont pas encore posés
 static void updateTrayPositionsForLevel(Level* level, int screenWidth, int screenHeight) {
+    // Calcule la position Y de la barquette (en bas de l'écran) en fonction de la taille ecran
     int trayY = screenHeight - (int)trayHeight - (int)trayMarginBottom;
+    
+    // Centre de l'écran pour centrer la ligne d'ingrédients
     float centerX = (float)screenWidth / 2.0f;
+    
+    // Largeur totale de la ligne (5 ingrédients avec 4 espaces entre eux)
     float totalWidth = (INGREDIENT_COUNT - 1) * traySpacing;
+    
+    // Position X de départ pour centrer la ligne
     float startX = centerX - totalWidth / 2.0f;
 
+    // Pour chaque ingrédient, on calcule sa position dans la barquette
     for (int i = 0; i < level->ingredientCount; ++i) {
         Ingredient* ing = &level->ingredients[i];
-        if (ing->isPlaced || ing == draggedIngredient) continue; // ceux posés restent sur le gâteau
+        // On skip ceux qui sont déjà posés ou qu'on est en train de bouger
+        if (ing->isPlaced || ing == draggedIngredient) continue;
 
+        // Position X : on part du début et on ajoute l'espacement pour chaque ingrédient
         float x = startX + i * traySpacing;
         float y;
+        
+        // Si l'ingrédient a une texture, on centre par rapport à sa taille
         if (ing->texture.id != 0) {
-            x -= (float)ing->texture.width * trayScale / 2.0f;
-            y = (float)trayY + (trayHeight / 2.0f) - (float)ing->texture.height * trayScale / 2.0f;
+            x -= (float)ing->texture.width * trayScale / 2.0f;  // centre horizontalement
+            y = (float)trayY + (trayHeight / 2.0f) - (float)ing->texture.height * trayScale / 2.0f;  // centre verticalement
         } else {
+            // Pas de texture, on utilise une position par défaut
             x -= 30.0f;
             y = (float)trayY + (trayHeight / 2.0f) - 30.0f;
         }
@@ -238,22 +288,25 @@ static void updateTrayPositionsForLevel(Level* level, int screenWidth, int scree
         ing->position = (Vector2){x, y};
         ing->isInTray = true;
 
+        // Met à jour le rectangle de drag pour les clics sur l'ingredient
         if (ing->texture.id != 0) {
             ing->rect = (Rectangle){x, y,
-                                    ing->texture.width * trayScale,
+                                    ing->texture.width * trayScale,   // taille réduite
                                     ing->texture.height * trayScale};
         } else {
-            ing->rect = (Rectangle){x, y, 60, 60};
+            ing->rect = (Rectangle){x, y, 60, 60};  // taille par défaut
         }
     }
 }
 
-// --------- Sauvegarde/Chargement des niveaux ---------
+// Save des niveaux dans un fichier .ini (détails dans le rapport)
 
+// Appelée automatiquement quand on quitte le mode éditeur (Ctrl+F2)
 static void saveLevelConfig(void) {
-    FILE *f = fopen(LEVEL_CONFIG_FILE, "w");
-    if (!f) return;
+    FILE *f = fopen(LEVELCONFIG, "w");  // "w" = write, crée ou écrase le fichier
+    if (!f) return;  // Si erreur d'ouverture, on arrête
 
+    // on écrit les paramètres
     fprintf(f, "# Configuration des niveaux Cerise sur Gateau\n\n");
     fprintf(f, "tray_height=%.2f\n", trayHeight);
     fprintf(f, "cake_center=%.2f,%.2f\n", cakeCenter.x, cakeCenter.y);
@@ -262,11 +315,14 @@ static void saveLevelConfig(void) {
     fprintf(f, "tray_margin_bottom=%.2f\n", trayMarginBottom);
     fprintf(f, "tray_spacing=%.2f\n", traySpacing);
 
+    // Pour chaque niveau (3 niveaux) et chaque ingrédient (5 ingrédients)
+    // On sauvegarde la position cible en pixels absolus
     for (int level = 0; level < MAX_LEVELS; ++level) {
         Level* l = &levels[level];
         for (int i = 0; i < l->ingredientCount; ++i) {
+            // Format : level_1_ingredient_0=893.00,289.09
             fprintf(f, "level_%d_ingredient_%d=%.2f,%.2f\n",
-                    level + 1, i,
+                    level + 1, i,  // level + 1 car les fichiers utilisent 1-3, pas 0-2
                     l->ingredients[i].targetPosition.x,
                     l->ingredients[i].targetPosition.y);
         }
@@ -275,24 +331,30 @@ static void saveLevelConfig(void) {
     fclose(f);
 }
 
+// Charge les positions depuis le fichier .ini
 static void loadLevelConfig(void) {
-    FILE *f = fopen(LEVEL_CONFIG_FILE, "r");
-    if (!f) return;
+    FILE *f = fopen(LEVELCONFIG, "r");  // "r" = read, ouvre en lecture seul
+    if (!f) return;  // Erreur d'ouverture du fichier
 
-    char line[256];
+    // On lit le fichier ligne par ligne
+    char line[256];  // stockage temporaire de la ligne
     while (fgets(line, sizeof(line), f)) {
+        // On ignore les commentaires (lignes qui commencent par #) et les lignes vides
         if (line[0] == '#' || line[0] == '\n') continue;
 
+        // On lit chaque ligne selon son type et donc un else pour chaque ligne possible
+        // D'abord les paramètres (tray_height, cake_center, etc. lignes 310-316)
         if (strncmp(line, "tray_height=", 12) == 0) {
             float h;
-            if (sscanf(line + 12, "%f", &h) == 1) {
+            if (sscanf(line + 12, "%f", &h) == 1) {  // lit le nombre après "tray_height="
                 trayHeight = h;
+                // On limite entre 60 et 300 pour éviter des valeurs aberrantes
                 if (trayHeight < 60.0f) trayHeight = 60.0f;
                 if (trayHeight > 300.0f) trayHeight = 300.0f;
             }
         } else if (strncmp(line, "cake_center=", 12) == 0) {
             float x, y;
-            if (sscanf(line + 12, "%f,%f", &x, &y) == 2) {
+            if (sscanf(line + 12, "%f,%f", &x, &y) == 2) {  // lit "x,y"
                 cakeCenter = (Vector2){x, y};
             }
         } else if (strncmp(line, "cake_radius=", 12) == 0) {
@@ -316,10 +378,13 @@ static void loadLevelConfig(void) {
                 traySpacing = sp;
             }
         } else {
+            // Format : level_1_ingredient_0=893.00,289.09
             int level, ingredient;
             float x, y;
             if (sscanf(line, "level_%d_ingredient_%d=%f,%f", &level, &ingredient, &x, &y) == 4) {
+                // On vérifie que les valeurs sont valides avant d'appliquer
                 if (level >= 1 && level <= MAX_LEVELS && ingredient >= 0 && ingredient < INGREDIENT_COUNT) {
+                    // level - 1 car le fichier utilise 1-3 mais le tableau utilise 0-2
                     levels[level - 1].ingredients[ingredient].targetPosition = (Vector2){x, y};
                 }
             }
@@ -328,16 +393,18 @@ static void loadLevelConfig(void) {
     fclose(f);
 }
 
-// --------- mg_init ---------
+// Initialisation du jeu
 
+// Fonction d'initialisation appelée au démarrage du jeu
 static void mg_init(void) {
     int sw = GetScreenWidth();
     int sh = GetScreenHeight();
 
+    // Le centre du gâteau est au centre de l'écran
     cakeCenter = (Vector2){ sw / 2.0f, sh / 2.0f };
     cakeRadius = CAKE_PLACEMENT_RADIUS;
 
-    // Fond
+    // Charge le fond d'écran (on essaie deux chemins possibles)
     if (FileExists("assets/cerisesurgateau/fond du jeu/fond ecran.png")) {
         Image img = LoadImage("assets/cerisesurgateau/fond du jeu/fond ecran.png");
         if (img.data) {
@@ -352,19 +419,22 @@ static void mg_init(void) {
         }
     }
 
-    // Niveaux
+    // Initialise les 3 niveaux
+    // Pour chaque niveau, on charge les images
     for (int i = 0; i < MAX_LEVELS; ++i) {
         initLevel(i);
         updateTrayPositionsForLevel(&levels[i], sw, sh);
     }
 
-    // Charger la configuration sauvegardée (après initLevel pour écraser les valeurs par défaut)
+    // Charge la configuration depuis le fichier .ini
     loadLevelConfig();
 
-    // Sélectionner un niveau aléatoire
-    srand((unsigned int)time(NULL));
-    currentLevel = rand() % MAX_LEVELS;
-    gameState = STATE_SHOWING_MODEL;
+    // Sélectionne un niveau aléatoire pour cette partie
+    srand((unsigned int)time(NULL));  // initialise le générateur aléatoire
+    currentLevel = rand() % MAX_LEVELS;  // nombre entre 0 et 2
+    
+    // Initialise l'état du jeu
+    gameState = STATE_SHOWING_MODEL;  // on commence par montrer le modèle
     modelTimer = 0.0f;
     levelTimer = 0.0f;
     draggedIngredient = NULL;
@@ -376,7 +446,7 @@ static void mg_init(void) {
     s_endScreen.wantsToReplay = false;
 }
 
-// --------- Mode éditeur (simple) ---------
+// Mode debug avec ctrl+f2
 
 static void handleEditorToggle(void) {
     static bool f2PressedBefore = false;
@@ -386,17 +456,17 @@ static void handleEditorToggle(void) {
     if (ctrlDown && f2Pressed && !f2PressedBefore) {
         editorMode = !editorMode;
         if (editorMode) {
-            gameState = STATE_EDITOR;
+            gameState = STATE_EDITOR; //on entre dans le mode debug
         } else {
             // Sauvegarder les paramètres quand on quitte l'éditeur
-            saveLevelConfig();
-            gameState = STATE_PLAYING;
+            saveLevelConfig(); //on sauvegarde les paramètres dans le fichier .ini
+            gameState = STATE_PLAYING; //on revient au jeu
         }
     }
     if (!f2Pressed) f2PressedBefore = false;
     if (f2Pressed && !f2PressedBefore) f2PressedBefore = true;
 }
-
+//partie pour edition des niveaux, peut etre enlever une fois les niveaux finis
 static void updateEditor(void) {
     if (!editorMode || gameState != STATE_EDITOR) return;
 
@@ -419,69 +489,73 @@ static void updateEditor(void) {
     static bool draggingCenter = false;
     static bool draggingRadius = false;
 
-    if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+    if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) { //lorsque le clic droit est pressé
         float d = dist(mouse, cakeCenter);
-        if (d < 20.0f) {
-            draggingCenter = true;
-        } else if (fabsf(d - cakeRadius) < 15.0f) {
-            draggingRadius = true;
+        if (d < 20.0f) { //si la distance est inférieure à 20 pixels
+            draggingCenter = true; //on commence à drag le centre
+        } else if (fabsf(d - cakeRadius) < 15.0f) { //si la distance est inférieure à 15 pixels
+            draggingRadius = true; //on commence à drag le rayon
         }
     }
-
+ // lorsque le clic droit est maintenu
     if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
         if (draggingCenter) {
             cakeCenter = mouse;
-            // on déplace aussi les cibles pour rester cohérent ??
-            // non : on laisse l'utilisateur recaler à la main s'il veut
+            // on met a jour le centre
         } else if (draggingRadius) {
-            float d = dist(mouse, cakeCenter);
-            cakeRadius = d;
-            if (cakeRadius < 50.0f) cakeRadius = 50.0f;
+            float d = dist(mouse, cakeCenter); //distance entre le centre et la souris
+            cakeRadius = d; //on met a jour le rayon
+            if (cakeRadius < 50.0f) cakeRadius = 50.0f; //limite le rayon
             if (cakeRadius > 500.0f) cakeRadius = 500.0f;
         }
     }
 
-    if (IsMouseButtonReleased(MOUSE_BUTTON_RIGHT)) {
-        draggingCenter = false;
-        draggingRadius = false;
+    if (IsMouseButtonReleased(MOUSE_BUTTON_RIGHT)) { //lorsque le clic droit est relaché
+        draggingCenter = false; //on stoppe le drag du centre
+        draggingRadius = false; //on stoppe le drag du rayon
     }
 
     // déplacer la cible de l'ingrédient sélectionné : clic gauche dans le cercle
-    if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
-        if (editorSelectedIngredient >= 0 &&
-            editorSelectedIngredient < level->ingredientCount &&
-            pointInCircle(mouse, cakeCenter, cakeRadius)) {
-            level->ingredients[editorSelectedIngredient].targetPosition = mouse;
+    if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) { //lorsque le clic gauche est maintenu 
+        if (editorSelectedIngredient >= 0 && //si l'ingredient est selectionné
+            editorSelectedIngredient < level->ingredientCount && //si l'ingredient est dans le niveau
+            pointInCircle(mouse, cakeCenter, cakeRadius)) { //si la souris est dans le cercle
+            level->ingredients[editorSelectedIngredient].targetPosition = mouse; //on met a jour la position de l'ingredient
         }
     }
 }
 
-// --------- mg_update ---------
-
+// Update du jeu 
+// dt = delta time (temps écoulé depuis la dernière frame, en secondes)
 static void mg_update(float dt) {
+    // Vérifie si on appuie sur Ctrl+F2 pour activer/désactiver l'éditeur
     handleEditorToggle();
 
+    // Si on est en mode éditeur, on gère juste l'éditeur et on sort
     if (gameState == STATE_EDITOR) {
         updateEditor();
         return;
     }
 
+    // Si le jeu est terminé, on gère l'écran de fin
     if (gameState == STATE_GAME_COMPLETE) {
-        bool won = finalScore >= PASSING_SCORE;
+        bool won = finalScore >= PASSING_SCORE;  // gagné si score >= 60%
         UpdateEndScreen(&s_endScreen, won, !won);
         
+        // Si le joueur veut rejouer, on charge un nouveau niveau aléatoire
         if (s_endScreen.wantsToReplay) {
-            // Réinitialiser avec un niveau aléatoire différent
+            // On choisit un niveau différent du précédent (pour varier)
             int newLevel;
             do {
                 newLevel = rand() % MAX_LEVELS;
-            } while (newLevel == currentLevel && MAX_LEVELS > 1);
+            } while (newLevel == currentLevel && MAX_LEVELS > 1);  // différent si possible
             currentLevel = newLevel;
             
+            // On remet tout à zéro pour le nouveau niveau
             int sw = GetScreenWidth();
             int sh = GetScreenHeight();
             updateTrayPositionsForLevel(&levels[currentLevel], sw, sh);
-            gameState = STATE_SHOWING_MODEL;
+            gameState = STATE_SHOWING_MODEL;  // on recommence par montrer le modèle
             modelTimer = 0.0f;
             levelTimer = 0.0f;
             draggedIngredient = NULL;
@@ -498,13 +572,15 @@ static void mg_update(float dt) {
     int sh = GetScreenHeight();
     Level* level = &levels[currentLevel];
 
+    // État : on montre le modèle (le gâteau qu'il faut reproduire)
     if (gameState == STATE_SHOWING_MODEL) {
-        modelTimer += dt;
+        modelTimer += dt;  // on compte le temps
+        // Après 5 secondes, on passe au jeu
         if (modelTimer >= MODEL_DISPLAY_TIME) {
             gameState = STATE_PLAYING;
-            levelTimer = LEVEL_TIME;
+            levelTimer = LEVEL_TIME;  // on démarre le timer de 30 secondes
 
-            // reset ingrédients du niveau
+            // On remet tous les ingrédients en bas (barquette)
             for (int i = 0; i < level->ingredientCount; ++i) {
                 level->ingredients[i].isPlaced = false;
                 level->ingredients[i].isInTray = true;
@@ -514,72 +590,87 @@ static void mg_update(float dt) {
         return;
     }
 
+    // État : on joue (le joueur place les ingrédients)
     if (gameState == STATE_PLAYING) {
-        levelTimer -= dt;
-        if (levelTimer < 0.0f) levelTimer = 0.0f;
+        levelTimer -= dt;  // le timer descend
+        if (levelTimer < 0.0f) levelTimer = 0.0f;  // pas de temps négatif
 
-        // placer les ingrédients en bas (ligne) pour ceux non posés
+        // On met à jour les positions des ingrédients qui sont encore en bas
+        // (ceux qui sont posés restent où ils sont)
         updateTrayPositionsForLevel(level, sw, sh);
 
         // Gestion du drag & drop
         Vector2 mouse = GetMousePosition();
 
-        // début du drag : on peut attraper un ingrédient en bas OU déjà posé
+        // Début du drag : quand on clique, on vérifie si on a cliqué sur un ingrédient
+        // On peut attraper un ingrédient qui est en bas (barquette) OU déjà posé sur le gâteau
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             draggedIngredient = NULL;
+            // On parcourt tous les ingrédients pour voir lequel est sous la souris
             for (int i = 0; i < level->ingredientCount; ++i) {
                 Ingredient* ing = &level->ingredients[i];
+                // On peut attraper si l'ingrédient est dans la barquette OU déjà posé
+                // ET si la souris est dans le rectangle de l'ingrédient
                 if ((ing->isInTray || ing->isPlaced) &&
                     CheckCollisionPointRec(mouse, ing->rect)) {
                     draggedIngredient = ing;
+                    // On calcule l'offset pour que l'ingrédient suive bien la souris
+                    // (on veut que le centre de l'ingrédient suive la souris, pas le coin)
                     dragOffset = (Vector2){
                         ing->rect.width  / 2.0f,
                         ing->rect.height / 2.0f
                     };
-                    break;
+                    break;  // on a trouvé, on arrête
                 }
             }
         }
 
-        // drag en cours
+        // Pendant le drag : on suit la souris
         if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && draggedIngredient) {
+            // Position de l'ingrédient = position de la souris - offset
+            // Comme ça le centre de l'ingrédient suit la souris
             draggedIngredient->position = (Vector2){
                 mouse.x - dragOffset.x,
                 mouse.y - dragOffset.y
             };
+            // On met à jour le rectangle de collision aussi
             draggedIngredient->rect.x = draggedIngredient->position.x;
             draggedIngredient->rect.y = draggedIngredient->position.y;
         }
 
-        // fin de drag
+        // Fin du drag : quand on relâche le clic
         if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT) && draggedIngredient) {
             Vector2 mouseUp = GetMousePosition();
+            // Si on relâche dans le cercle du gâteau, on pose l'ingrédient
             if (pointInCircle(mouseUp, cakeCenter, cakeRadius)) {
-                // pose sur le gâteau
+                // L'ingrédient est posé sur le gâteau
                 draggedIngredient->isPlaced = true;
                 draggedIngredient->isInTray = false;
 
+                // On centre l'ingrédient sur la position de la souris
                 if (draggedIngredient->texture.id != 0) {
                     draggedIngredient->position.x =
                         mouseUp.x - draggedIngredient->texture.width / 2.0f;
                     draggedIngredient->position.y =
                         mouseUp.y - draggedIngredient->texture.height / 2.0f;
                 } else {
+                    // Pas de texture, on utilise une position par défaut
                     draggedIngredient->position.x = mouseUp.x - 30.0f;
                     draggedIngredient->position.y = mouseUp.y - 30.0f;
                 }
                 draggedIngredient->rect.x = draggedIngredient->position.x;
                 draggedIngredient->rect.y = draggedIngredient->position.y;
             } else {
-                // remis en bas
+                // Si on relâche en dehors du cercle, on remet l'ingrédient en bas
                 draggedIngredient->isPlaced = false;
                 draggedIngredient->isInTray = true;
             }
 
-            draggedIngredient = NULL;
+            draggedIngredient = NULL;  // on arrête de bouger cet ingrédient
         }
 
-        // Bouton "Terminer" à droite
+        // Bouton "Terminer" à droite de l'écran
+        // Le joueur peut cliquer dessus pour terminer avant la fin du temps
         int buttonX = sw - 180;
         int buttonY = sh / 2 - 40;
         int buttonWidth = 150;
@@ -587,72 +678,13 @@ static void mg_update(float dt) {
         Rectangle finishButton = {buttonX, buttonY, buttonWidth, buttonHeight};
         
         if (CheckCollisionPointRec(mouse, finishButton) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            // Calculer le score immédiatement
-            // Vérifier que tous les ingrédients sont placés
-            int placed = 0;
-            for (int i = 0; i < level->ingredientCount; ++i) {
-                if (level->ingredients[i].isPlaced) {
-                    placed++;
-                }
-            }
-            
-            // Si tous les ingrédients ne sont pas placés, score = 0%
-            if (placed < level->ingredientCount) {
-                level->score = 0.0f;
-            } else {
-                // Tous les ingrédients sont placés, calculer la précision
-                float total = 0.0f;
-                for (int i = 0; i < level->ingredientCount; ++i) {
-                    Ingredient* ing = &level->ingredients[i];
-                    Vector2 centerPlaced = {
-                        ing->position.x + (ing->texture.width  / 2.0f),
-                        ing->position.y + (ing->texture.height / 2.0f)
-                    };
-                    total += calculatePrecision(ing->targetPosition, centerPlaced);
-                }
-                level->score = total / level->ingredientCount;
-            }
-
-            level->completed = true;
-            finalScore = level->score;
-            gameState = STATE_GAME_COMPLETE;
-            s_endScreen.wantsToExit = false;
-            s_endScreen.wantsToReplay = false;
+            // Le joueur a cliqué sur "Terminer", on calcule le score tout de suite
+            calculateAndFinalizeScore(level);
         }
 
-        // fin du temps -> calcul score
+        // Si le temps est écoulé, on calcule aussi le score
         if (levelTimer <= 0.0f) {
-            // Vérifier que tous les ingrédients sont placés
-            int placed = 0;
-            for (int i = 0; i < level->ingredientCount; ++i) {
-                if (level->ingredients[i].isPlaced) {
-                    placed++;
-                }
-            }
-            
-            // Si tous les ingrédients ne sont pas placés, score = 0%
-            if (placed < level->ingredientCount) {
-                level->score = 0.0f;
-            } else {
-                // Tous les ingrédients sont placés, calculer la précision
-                float total = 0.0f;
-                for (int i = 0; i < level->ingredientCount; ++i) {
-                    Ingredient* ing = &level->ingredients[i];
-                    Vector2 centerPlaced = {
-                        ing->position.x + (ing->texture.width  / 2.0f),
-                        ing->position.y + (ing->texture.height / 2.0f)
-                    };
-                    total += calculatePrecision(ing->targetPosition, centerPlaced);
-                }
-                level->score = total / level->ingredientCount;
-            }
-
-            level->completed = true;
-            // Le jeu se termine directement après un niveau
-            finalScore = level->score;
-            gameState = STATE_GAME_COMPLETE;
-            s_endScreen.wantsToExit = false;
-            s_endScreen.wantsToReplay = false;
+            calculateAndFinalizeScore(level);
         }
     }
 }
@@ -679,20 +711,24 @@ static void mg_draw(void) {
 
     Level* level = &levels[currentLevel];
 
-    // Affichage du modèle
+    // Affichage du modèle (le gâteau qu'il faut reproduire)
+    // On le montre pendant 5 secondes avec un effet de fondu
     if (gameState == STATE_SHOWING_MODEL) {
         if (level->modelTexture.id != 0) {
-            float progress = modelTimer / MODEL_DISPLAY_TIME;
+            float progress = modelTimer / MODEL_DISPLAY_TIME;  // 0.0 à 1.0
             float alpha = 1.0f;
-            if (progress < 0.2f) alpha = progress / 0.2f;
-            else if (progress > 0.8f) alpha = (1.0f - progress) / 0.2f;
+            // Effet de fondu : apparaît au début (0-20%), disparaît à la fin (80-100%)
+            if (progress < 0.2f) alpha = progress / 0.2f;  // fade in
+            else if (progress > 0.8f) alpha = (1.0f - progress) / 0.2f;  // fade out
             
             // S'assurer que l'alpha est à 0 à la fin du timer
             if (progress >= 1.0f) alpha = 0.0f;
 
             if (alpha > 0.0f) {
+                // Fond noir semi-transparent pour mettre en valeur le modèle
                 DrawRectangle(0, 0, sw, sh, (Color){0,0,0,(unsigned char)(180*alpha)});
 
+                // On dessine le modèle au centre, réduit à 60% de sa taille
                 float scale = 0.6f;
                 float x = sw / 2.0f - level->modelTexture.width * scale / 2.0f;
                 float y = sh / 2.0f - level->modelTexture.height * scale / 2.0f;
@@ -701,6 +737,7 @@ static void mg_draw(void) {
             }
         }
 
+        // Affiche le texte "Observez le modele..." et le compte à rebours
         if (modelTimer < MODEL_DISPLAY_TIME) {
             DrawText("Observez le modele...", sw/2 - 150, 50, 30, WHITE);
             DrawText(TextFormat("%.1f", MODEL_DISPLAY_TIME - modelTimer),
