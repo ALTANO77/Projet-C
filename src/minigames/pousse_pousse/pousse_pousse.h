@@ -16,12 +16,11 @@ typedef struct {
 
 // ---- logique du puzzle ----
 void init_solved(Board *b);
-void shuffle_board(Board *b, int moves_count);
+void shuffle_board(Board *b); // Paramètre 'moves_count' supprimé
 void init_random_board(Board *b);
 int  can_move_tile(const Board *b, int row, int col);
-int  move_tile(Board *b, int row, int col);
-int  move_tile_by_number(Board *b, int number);
 int  is_solved(const Board *b);
+// Note : move_tile et move_tile_by_number ont été supprimés car inutiles.
 
 // ---- intégration moteur
 MinigameAPI GetMinigamePoussePousse(void);
